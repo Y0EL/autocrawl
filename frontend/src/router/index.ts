@@ -1,0 +1,51 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    {
+      path: '/',
+      name: 'overview',
+      component: () => import('@/views/OverviewPage.vue'),
+    },
+    {
+      path: '/vendors',
+      name: 'vendors',
+      component: () => import('@/views/VendorsListPage.vue'),
+    },
+    {
+      path: '/vendors/:domain',
+      name: 'vendor-detail',
+      component: () => import('@/views/VendorDetailPage.vue'),
+      props: true,
+    },
+    {
+      path: '/expos',
+      name: 'expos',
+      component: () => import('@/views/ExposListPage.vue'),
+    },
+    {
+      path: '/expos/:expoId',
+      name: 'expo-detail',
+      component: () => import('@/views/ExpoDetailPage.vue'),
+      props: true,
+    },
+    {
+      path: '/pdfs',
+      name: 'pdfs',
+      component: () => import('@/views/PdfsListPage.vue'),
+    },
+    {
+      path: '/runs',
+      name: 'runs',
+      component: () => import('@/views/RunsListPage.vue'),
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundPage.vue'),
+    },
+  ],
+})
+
+export default router

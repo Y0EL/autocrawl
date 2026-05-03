@@ -1,0 +1,226 @@
+name: autocrawl
+
+services:
+  crawler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: autocrawl/crawler:latest
+    container_name: autocrawl-crawler
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      FLARESOLVERR_URL: http://flaresolverr:8191/v1
+      LANGFUSE_HOST: http://langfuse-web:3000
+      DATABASE_URL: postgresql+asyncpg://postgres:123@autocrawl-db:5432/autocrawl
+      DATA_DIR: /app/data
+      LOG_DIR: /app/logs
+      CONFIG_DIR: /app/config
+      TRANSLATION_ENABLED: "true"
+      TRANSLATION_PROVIDER: nllb
+      NLLB_MODEL_PATH: /app/data/nllb_ct2
+      NLLB_TOKENIZER_PATH: /app/data/nllb_hf/snapshot
+      TARGET_LANGUAGE: id
+    depends_on:
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+      flaresolverr:
+        condition: service_started
+      autocrawl-db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    networks: [crawl_net]
+    ports:
+      - "8080:8080"
+    shm_size: 4gb
+
+  api:
+    image: autocrawl/crawler:latest
+    container_name: autocrawl-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:123@autocrawl-db:5432/autocrawl
+      DATA_DIR: /app/data
+      LOG_DIR: /app/logs
+      CONFIG_DIR: /app/config
+      API_CORS_ORIGINS: http://localhost:5173,http://localhost:8090
+      TRANSLATION_ENABLED: "true"
+      TRANSLATION_PROVIDER: nllb
+      NLLB_MODEL_PATH: /app/data/nllb_ct2
+      NLLB_TOKENIZER_PATH: /app/data/nllb_hf/snapshot
+      TARGET_LANGUAGE: id
+    depends_on:
+      autocrawl-db:
+        condition: service_healthy
+      crawler:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    command:
+      ["uvicorn", "crawler.api:app", "--host", "0.0.0.0", "--port", "8081", "--proxy-headers"]
+    networks: [crawl_net]
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  autocrawl-db:
+    image: postgres:16-alpine
+    container_name: autocrawl-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123"
+      POSTGRES_DB: autocrawl
+    volumes:
+      - autocrawl_pgdata:/var/lib/postgresql/data
+    networks: [crawl_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d autocrawl"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: autocrawl/frontend:latest
+    container_name: autocrawl-frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks: [crawl_net]
+    ports:
+      - "8090:80"
+
+  redis:
+    image: redis:7-alpine
+    container_name: autocrawl-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "100", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [crawl_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: autocrawl-chroma
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks: [crawl_net]
+    ports:
+      - "8000:8000"
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: autocrawl-flaresolverr
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+      TZ: UTC
+    networks: [crawl_net]
+    ports:
+      - "8191:8191"
+
+  # ---- Observability ----
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: autocrawl-langfuse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db:/var/lib/postgresql/data
+    networks: [crawl_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  langfuse-web:
+    # Pinned to v2 — v3 requires ClickHouse + Redis + S3 (much heavier stack).
+    # v2 is single-container with Postgres only and is fine for our use case.
+    image: ghcr.io/langfuse/langfuse:2
+    container_name: autocrawl-langfuse
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: "change-me-please-12345"
+      SALT: "change-me-please-67890"
+      NEXTAUTH_URL: http://localhost:3001
+      TELEMETRY_ENABLED: "false"
+    networks: [crawl_net]
+    ports:
+      - "3001:3000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: autocrawl-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./backend/ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    networks: [crawl_net]
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: autocrawl-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: ""
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./backend/ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./backend/ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [crawl_net]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+networks:
+  crawl_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  chroma_data:
+  langfuse_db:
+  prom_data:
+  grafana_data:
+  autocrawl_pgdata:
