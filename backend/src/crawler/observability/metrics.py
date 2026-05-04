@@ -108,6 +108,26 @@ openai_tokens_total = Counter(
     registry=REGISTRY,
 )
 
+# === Crawl4AI ===
+crawl4ai_requests_total = Counter(
+    "crawl_crawl4ai_requests_total",
+    "Crawl4AI operation counts (scrape / extract / find_pdfs).",
+    ["operation", "status"],
+    registry=REGISTRY,
+)
+crawl4ai_browser_recycles_total = Counter(
+    "crawl_crawl4ai_browser_recycles_total",
+    "Crawl4AI browser instance recycles to dodge memory leaks.",
+    ["mode"],
+    registry=REGISTRY,
+)
+external_search_total = Counter(
+    "crawl_external_search_total",
+    "Discovery search calls per provider (wikipedia | ddg | firecrawl | etc).",
+    ["provider", "status"],
+    registry=REGISTRY,
+)
+
 # === Live state ===
 active_workers = Gauge(
     "crawl_active_workers",

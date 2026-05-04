@@ -41,6 +41,21 @@ const router = createRouter({
       component: () => import('@/views/RunsListPage.vue'),
     },
     {
+      path: '/diagnostik',
+      name: 'diagnostik',
+      component: () => import('@/views/DiagnosticsPage.vue'),
+    },
+    {
+      path: '/orkestrator',
+      name: 'orkestrator',
+      component: () => import('@/views/OrchestratorProgressPage.vue'),
+    },
+    {
+      path: '/konfigurasi',
+      name: 'konfigurasi',
+      component: () => import('@/views/ConfigurationPage.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundPage.vue'),

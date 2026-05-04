@@ -3,65 +3,109 @@ import { ref, computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { RouterLink } from 'vue-router'
 import { api } from '@/api/client'
-import DataTable from '@/components/DataTable.vue'
-import PageHeader from '@/components/PageHeader.vue'
+import HudPanel from '@/components/HudPanel.vue'
+import HudEmptyState from '@/components/HudEmptyState.vue'
 
 const search = ref('')
 
 const { data, isLoading } = useQuery({
   queryKey: ['expos', { search }],
   queryFn: () => api.expos({ search: search.value, limit: 100 }),
+  refetchInterval: 30000,
+  refetchOnWindowFocus: true,
 })
 
 const items = computed(() => data.value?.items ?? [])
-
-const columns = [
-  { key: 'name', label: 'Expo' },
-  { key: 'country', label: 'Negara' },
-  { key: 'start_date', label: 'Mulai' },
-  { key: 'vendor_count', label: 'Vendor', align: 'right' as const },
-  { key: 'pdf_count', label: 'PDF', align: 'right' as const },
-] as const
 </script>
 
 <template>
-  <div>
-    <PageHeader
-      title="Daftar Expo"
-      :subtitle="`${items.length} expo terdiscover otomatis lewat multi-source search.`"
-    />
-
-    <div class="mb-4">
+  <div class="flex flex-col gap-3 p-3">
+    <HudPanel title="Filter Ekspo" code="EXP-FLT">
       <div class="relative">
-        <i
-          class="fa-solid fa-magnifying-glass pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-        ></i>
-        <input v-model="search" type="text" placeholder="Cari nama expo" class="input pl-9" />
+        <FaIcon
+          :icon="['fas', 'magnifying-glass']"
+          class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-2xs text-base-400 dark:text-base-500"
+        />
+        <input
+          v-model="search"
+          type="text"
+          placeholder="CARI NAMA EKSPO..."
+          class="hud-input pl-7"
+        />
       </div>
-    </div>
+    </HudPanel>
 
-    <DataTable :items="items" :columns="[...columns]" row-key="expo_id" :loading="isLoading">
-      <template #cell-name="{ row }">
-        <RouterLink
-          :to="`/expos/${row.expo_id}`"
-          class="font-medium text-accent-600 hover:underline dark:text-accent-400"
+    <HudPanel :title="`Daftar Ekspo (${items.length})`" code="EXP-LIST">
+      <template #actions>
+        <span class="hud-chip text-2xs">LIVE 30s</span>
+        <span
+          v-if="isLoading"
+          class="font-mono text-2xs uppercase tracking-ops text-warn-600 dark:text-warn-400"
         >
-          {{ row.name }}
-        </RouterLink>
-        <p class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ row.expo_id }}</p>
+          MEMUAT...
+        </span>
       </template>
-      <template #cell-country="{ row }">
-        <span class="text-sm">{{ row.country ?? '-' }}</span>
-      </template>
-      <template #cell-start_date="{ row }">
-        <span class="text-sm">{{ row.start_date ?? '-' }}</span>
-      </template>
-      <template #cell-vendor_count="{ row }">
-        <span class="font-semibold tabular-nums">{{ row.vendor_domains?.length ?? 0 }}</span>
-      </template>
-      <template #cell-pdf_count="{ row }">
-        <span class="font-semibold tabular-nums">{{ row.pdf_brochure_urls?.length ?? 0 }}</span>
-      </template>
-    </DataTable>
+
+      <div v-if="items.length === 0 && !isLoading">
+        <HudEmptyState
+          icon="flag-checkered"
+          title="Belum ada ekspo"
+          hint="Discovery agent akan menemukan ekspo baru tiap operasi crawl. Trigger run dari topbar."
+        />
+      </div>
+
+      <div v-else class="overflow-x-auto">
+        <table class="hud-table">
+          <thead>
+            <tr>
+              <th class="w-[40%]">Ekspo</th>
+              <th class="w-[15%]">Negara</th>
+              <th class="w-[15%]">Tanggal Mulai</th>
+              <th class="w-[10%]">Sumber</th>
+              <th class="w-[10%] text-right">Vendor</th>
+              <th class="w-[10%] text-right">PDF</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in items" :key="row.expo_id">
+              <td>
+                <RouterLink
+                  :to="`/expos/${row.expo_id}`"
+                  class="font-medium text-base-800 hover:text-accent-600 dark:text-base-100 dark:hover:text-accent-300"
+                >
+                  {{ row.name }}
+                </RouterLink>
+                <p class="hud-mono-num truncate text-2xs text-base-400 dark:text-base-500">
+                  {{ row.expo_id }}
+                </p>
+              </td>
+              <td>
+                <span class="hud-mono-num text-2xs uppercase">
+                  {{ row.country ?? '-' }}
+                </span>
+              </td>
+              <td>
+                <span class="hud-mono-num text-2xs">
+                  {{ row.start_date ?? '-' }}
+                </span>
+              </td>
+              <td>
+                <span class="hud-chip">{{ row.source }}</span>
+              </td>
+              <td class="text-right">
+                <span class="hud-mono-num text-sm font-semibold text-accent-600 dark:text-accent-300">
+                  {{ row.vendor_domains?.length ?? 0 }}
+                </span>
+              </td>
+              <td class="text-right">
+                <span class="hud-mono-num text-sm font-semibold text-info-600 dark:text-info-400">
+                  {{ row.pdf_brochure_urls?.length ?? 0 }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </HudPanel>
   </div>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import BaseChart from './BaseChart.vue'
+import { tactical, tooltipDefaults } from './chart-theme'
 import { useTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -11,35 +12,62 @@ const props = defineProps<{
 const { isDark } = useTheme()
 
 const colorMap: Record<string, string> = {
-  pdf: '#ef4444',
-  aggregator: '#0ea5e9',
-  search: '#f59e0b',
-  manual: '#a1a1aa',
+  pdf: '#EF4444',
+  aggregator: '#06B6D4',
+  search: '#FFB800',
+  manual: '#8F99A8',
+}
+
+const labelMap: Record<string, string> = {
+  pdf: 'PDF',
+  aggregator: 'Agregator',
+  search: 'Pencarian',
+  manual: 'Manual',
 }
 
 const option = computed(() => ({
-  backgroundColor: 'transparent',
-  textStyle: { color: isDark.value ? '#e4e4e7' : '#27272a' },
-  tooltip: { trigger: 'item', formatter: '{b}: <b>{c}</b> ({d}%)' },
+  backgroundColor: tactical.bg,
+  tooltip: {
+    ...tooltipDefaults(isDark.value),
+    trigger: 'item',
+    formatter: (p: { name: string; value: number; percent: number }) =>
+      `<span style="font-family:IBM Plex Mono,monospace">${p.name.toUpperCase()}: <b>${p.value}</b> (${p.percent}%)</span>`,
+  },
   legend: {
     orient: 'vertical',
-    right: 0,
+    right: 8,
     top: 'middle',
-    icon: 'roundRect',
-    textStyle: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+    icon: 'rect',
+    itemWidth: 8,
+    itemHeight: 8,
+    itemGap: 10,
+    textStyle: {
+      color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
+      fontFamily: 'IBM Plex Mono, monospace',
+      fontSize: 10,
+    },
+    formatter: (name: string) => (labelMap[name] ?? name).toUpperCase(),
   },
   series: [
     {
       name: 'Sumber',
       type: 'pie',
-      radius: ['55%', '80%'],
-      center: ['40%', '50%'],
+      radius: ['58%', '82%'],
+      center: ['38%', '50%'],
       itemStyle: {
-        borderRadius: 8,
-        borderColor: isDark.value ? '#18181b' : '#fafafa',
-        borderWidth: 3,
+        borderColor: isDark.value ? '#0E1218' : '#FFFFFF',
+        borderWidth: 2,
       },
-      label: { show: false },
+      label: {
+        show: true,
+        position: 'inside',
+        color: '#0E1218',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: 10,
+        fontWeight: 600,
+        formatter: '{d}%',
+      },
+      labelLine: { show: false },
       data: props.data.map((d) => ({
         name: d.type,
         value: d.count,
@@ -51,5 +79,5 @@ const option = computed(() => ({
 </script>
 
 <template>
-  <BaseChart :option="option" :loading="loading" height="h-72" />
+  <BaseChart :option="option" :loading="loading" height="h-64" />
 </template>

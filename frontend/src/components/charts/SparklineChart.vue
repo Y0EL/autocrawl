@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import BaseChart from './BaseChart.vue'
+import { tooltipDefaults } from './chart-theme'
 import { useTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -13,21 +14,19 @@ const props = defineProps<{
 const { isDark } = useTheme()
 
 const option = computed(() => {
-  const color = props.color ?? '#6366f1'
-  const isBar = (props.type ?? 'bar') === 'bar'
+  const color = props.color ?? '#FFB800'
+  const isBar = (props.type ?? 'line') === 'bar'
   return {
     backgroundColor: 'transparent',
-    grid: { left: 0, right: 0, top: 4, bottom: 0 },
+    grid: { left: 0, right: 0, top: 2, bottom: 0 },
     tooltip: {
+      ...tooltipDefaults(isDark.value),
       trigger: 'axis',
       formatter: (params: { dataIndex: number; value: number }[]) => {
         const p = params[0]
         const label = props.labels?.[p.dataIndex] ?? p.dataIndex
-        return `<span style="font-size:11px">${label}: <b>${p.value}</b></span>`
+        return `<span style="font-family:IBM Plex Mono,monospace">${label}: <b>${p.value}</b></span>`
       },
-      backgroundColor: isDark.value ? '#27272a' : '#fff',
-      borderColor: isDark.value ? '#3f3f46' : '#e4e4e7',
-      textStyle: { color: isDark.value ? '#e4e4e7' : '#27272a', fontSize: 11 },
     },
     xAxis: {
       type: 'category',
@@ -40,15 +39,15 @@ const option = computed(() => {
         ? {
             type: 'bar',
             data: props.data,
-            barWidth: '60%',
-            itemStyle: { color, borderRadius: [2, 2, 0, 0] },
+            barWidth: '70%',
+            itemStyle: { color },
           }
         : {
             type: 'line',
             data: props.data,
             symbol: 'none',
-            smooth: true,
-            lineStyle: { color, width: 2 },
+            smooth: false,
+            lineStyle: { color, width: 1.5 },
             areaStyle: {
               color: {
                 type: 'linear',
@@ -57,7 +56,7 @@ const option = computed(() => {
                 x2: 0,
                 y2: 1,
                 colorStops: [
-                  { offset: 0, color: color + '66' },
+                  { offset: 0, color: color + '40' },
                   { offset: 1, color: color + '00' },
                 ],
               },
@@ -69,5 +68,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <BaseChart :option="option" height="h-16" />
+  <BaseChart :option="option" height="h-12" />
 </template>

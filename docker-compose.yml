@@ -5,6 +5,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        HF_TOKEN: ${HF_TOKEN:-}
     image: autocrawl/crawler:latest
     container_name: autocrawl-crawler
     restart: unless-stopped

@@ -59,7 +59,7 @@ export const handlers = [
     if (search) {
       filtered = filtered.filter(
         (v) =>
-          v.domain.toLowerCase().includes(search) ||
+          (v.domain ?? '').toLowerCase().includes(search) ||
           v.company_name.toLowerCase().includes(search),
       )
     }

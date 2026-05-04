@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import BaseChart from './BaseChart.vue'
+import { tactical, tooltipDefaults, axisDefaults } from './chart-theme'
 import { useTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -17,45 +18,60 @@ const option = computed(() => {
     return cumulative
   })
 
+  const labels = props.data.map((d) => {
+    if (d.date.length >= 10) return d.date.slice(5)
+    return d.date
+  })
+
   return {
-    backgroundColor: 'transparent',
-    textStyle: { color: isDark.value ? '#e4e4e7' : '#27272a' },
-    grid: { left: 50, right: 30, top: 50, bottom: 30 },
-    tooltip: { trigger: 'axis' },
+    backgroundColor: tactical.bg,
+    grid: { left: 8, right: 32, top: 32, bottom: 24, containLabel: true },
+    tooltip: {
+      ...tooltipDefaults(isDark.value),
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: tactical.accent, type: 'dashed' } },
+    },
     legend: {
       top: 0,
       right: 0,
-      textStyle: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+      icon: 'rect',
+      itemWidth: 10,
+      itemHeight: 8,
+      itemGap: 12,
+      textStyle: {
+        color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: 10,
+      },
     },
     xAxis: {
       type: 'category',
-      data: props.data.map((d) => d.date),
-      axisLine: { lineStyle: { color: isDark.value ? '#3f3f46' : '#d4d4d8' } },
-      axisLabel: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+      data: labels,
+      ...axisDefaults(isDark.value),
+      splitLine: { show: false },
     },
     yAxis: {
       type: 'value',
-      axisLine: { show: false },
-      splitLine: { lineStyle: { color: isDark.value ? '#27272a' : '#f4f4f5' } },
-      axisLabel: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+      ...axisDefaults(isDark.value),
+      splitNumber: 4,
     },
     series: [
       {
-        name: 'Per hari',
+        name: 'PER HARI',
         type: 'bar',
         data: props.data.map((d) => d.vendors_added),
-        itemStyle: { color: '#6366f1', borderRadius: [4, 4, 0, 0] },
-        barWidth: '50%',
+        itemStyle: { color: tactical.accent },
+        barWidth: '40%',
       },
       {
-        name: 'Kumulatif',
+        name: 'KUMULATIF',
         type: 'line',
-        smooth: true,
+        smooth: false,
         symbol: 'circle',
-        symbolSize: 6,
+        symbolSize: 4,
         data: cum,
-        lineStyle: { width: 3, color: '#10b981' },
-        itemStyle: { color: '#10b981' },
+        lineStyle: { width: 2, color: tactical.info },
+        itemStyle: { color: tactical.info, borderColor: isDark.value ? '#0E1218' : '#FFFFFF', borderWidth: 1 },
         areaStyle: {
           color: {
             type: 'linear',
@@ -64,8 +80,8 @@ const option = computed(() => {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(16, 185, 129, 0.4)' },
-              { offset: 1, color: 'rgba(16, 185, 129, 0)' },
+              { offset: 0, color: 'rgba(6, 182, 212, 0.25)' },
+              { offset: 1, color: 'rgba(6, 182, 212, 0)' },
             ],
           },
         },
@@ -76,5 +92,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <BaseChart :option="option" :loading="loading" height="h-80" />
+  <BaseChart :option="option" :loading="loading" height="h-72" />
 </template>

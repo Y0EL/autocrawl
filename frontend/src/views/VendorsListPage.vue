@@ -4,15 +4,17 @@ import { useQuery } from '@tanstack/vue-query'
 import { RouterLink } from 'vue-router'
 import { api } from '@/api/client'
 import type { Vendor } from '@/api/types'
-import DataTable from '@/components/DataTable.vue'
-import CompletenessBar from '@/components/CompletenessBar.vue'
-import IndustryBadge from '@/components/IndustryBadge.vue'
-import PageHeader from '@/components/PageHeader.vue'
+import HudPanel from '@/components/HudPanel.vue'
+import HudIndustryBadge from '@/components/HudIndustryBadge.vue'
+import HudCompletenessBar from '@/components/HudCompletenessBar.vue'
+import HudStatusPill from '@/components/HudStatusPill.vue'
+import HudEmptyState from '@/components/HudEmptyState.vue'
 import { exportCsv } from '@/composables/useCsvExport'
 
 const search = ref('')
 const industry = ref('')
 const country = ref('')
+const status = ref('enriched')
 
 const countriesQ = useQuery({
   queryKey: ['stats', 'countries-all'],
@@ -20,160 +22,228 @@ const countriesQ = useQuery({
 })
 
 const { data, isLoading } = useQuery({
-  queryKey: ['vendors', { search, industry, country }],
+  queryKey: ['vendors', { search, industry, country, status }],
   queryFn: () =>
     api.vendors({
       search: search.value,
       industry: industry.value,
       country: country.value,
+      status: status.value || undefined,
       limit: 100,
     }),
+  refetchInterval: 30000,
+  refetchOnWindowFocus: true,
 })
 
-function handleExport() {
-  exportCsv('vendors_export.csv', items.value, [
-    { key: 'domain', label: 'Domain' },
-    { key: 'company_name', label: 'Company' },
-    { key: (v) => v.industries.join('|'), label: 'Industries' },
-    { key: (v) => v.address?.country ?? '', label: 'Country' },
-    { key: 'confidence_score', label: 'Confidence' },
-    { key: (v) => v.contacts.find((c) => c.type === 'email')?.value ?? '', label: 'Email' },
-    { key: 'canonical_url', label: 'URL' },
-    { key: (v) => v.expos_seen.join('|'), label: 'Expos' },
-  ])
+const statusToneMap: Record<string, 'ok' | 'muted' | 'crit' | 'warn'> = {
+  enriched: 'ok',
+  unresolved: 'muted',
+  enrich_failed: 'crit',
+  scope_rejected: 'warn',
+  validation_rejected: 'warn',
+}
+
+const statusLabelMap: Record<string, string> = {
+  enriched: 'OK',
+  unresolved: 'BELUM',
+  enrich_failed: 'GAGAL',
+  scope_rejected: 'OFF-SCOPE',
+  validation_rejected: 'TIPIS',
 }
 
 const items = computed(() => data.value?.items ?? [])
 
-const columns = [
-  { key: 'company_name', label: 'Perusahaan' },
-  { key: 'domain', label: 'Domain' },
-  { key: 'industries', label: 'Industri' },
-  { key: 'address', label: 'Lokasi' },
-  { key: 'confidence_score', label: 'Kelengkapan', width: '180px' },
-  { key: 'source', label: 'Sumber', align: 'center' as const },
-] as const
+function handleExport() {
+  exportCsv('vendors_export.csv', items.value, [
+    { key: (v) => v.domain ?? '', label: 'Domain' },
+    { key: 'company_name', label: 'Company' },
+    { key: 'status', label: 'Status' },
+    { key: (v) => v.industries.join('|'), label: 'Industries' },
+    { key: (v) => v.address?.country ?? '', label: 'Country' },
+    { key: 'confidence_score', label: 'Confidence' },
+    { key: (v) => v.contacts.find((c) => c.type === 'email')?.value ?? '', label: 'Email' },
+    { key: (v) => v.canonical_url ?? '', label: 'URL' },
+    { key: (v) => v.expos_seen.join('|'), label: 'Expos' },
+  ])
+}
 
-const sourceBadge = (vendor: Vendor): { icon: string; label: string; cls: string } => {
-  const types = new Set((vendor.source_trail ?? []).map((s) => s.type))
-  if (types.has('pdf')) {
-    return {
-      icon: 'fa-solid fa-file-pdf',
-      label: 'PDF',
-      cls: 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400',
-    }
-  }
-  if (types.has('aggregator')) {
-    return {
-      icon: 'fa-solid fa-globe',
-      label: 'Aggregator',
-      cls: 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400',
-    }
-  }
-  return {
-    icon: 'fa-solid fa-question',
-    label: 'Lainnya',
-    cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300',
-  }
+function sourcePill(v: Vendor): { tone: 'crit' | 'info' | 'accent' | 'muted'; label: string } {
+  const types = new Set((v.source_trail ?? []).map((s) => s.type))
+  if (types.has('pdf')) return { tone: 'crit', label: 'PDF' }
+  if (types.has('aggregator')) return { tone: 'info', label: 'AGR' }
+  if (types.has('search')) return { tone: 'accent', label: 'SRC' }
+  return { tone: 'muted', label: 'MAN' }
 }
 </script>
 
 <template>
-  <div>
-    <PageHeader
-      title="Daftar Vendor"
-      :subtitle="`${items.length} vendor terkoleksi dengan provenance lengkap.`"
-    >
+  <div class="flex flex-col gap-3 p-3">
+    <HudPanel title="Filter Vendor" code="VND-FLT">
       <template #actions>
         <button
-          class="btn-ghost h-9 px-3 text-sm"
+          class="hud-btn-ghost h-7"
           :disabled="!items.length"
           @click="handleExport"
         >
-          <i class="fa-solid fa-file-csv"></i>
-          Export CSV
+          <FaIcon :icon="['fas', 'arrow-up-right-from-square']" class="text-2xs" />
+          <span>Export CSV</span>
         </button>
       </template>
-    </PageHeader>
+      <div class="flex flex-col gap-2 md:flex-row md:items-center">
+        <div class="relative flex-1">
+          <FaIcon
+            :icon="['fas', 'magnifying-glass']"
+            class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-2xs text-base-400 dark:text-base-500"
+          />
+          <input
+            v-model="search"
+            type="text"
+            placeholder="CARI NAMA / DOMAIN..."
+            class="hud-input pl-7"
+          />
+        </div>
+        <select v-model="status" class="hud-input md:w-44">
+          <option value="">SEMUA STATUS</option>
+          <option value="enriched">ENRICHED</option>
+          <option value="unresolved">BELUM TER-RESOLVE</option>
+          <option value="enrich_failed">GAGAL ENRICH</option>
+          <option value="scope_rejected">OFF-SCOPE</option>
+          <option value="validation_rejected">DATA TIPIS</option>
+        </select>
+        <select v-model="industry" class="hud-input md:w-48">
+          <option value="">SEMUA INDUSTRI</option>
+          <option value="defense">DEFENSE</option>
+          <option value="cybersecurity">CYBERSECURITY</option>
+          <option value="law_enforcement">LAW ENFORCEMENT</option>
+          <option value="surveillance">SURVEILLANCE</option>
+          <option value="aerospace">AEROSPACE</option>
+        </select>
+        <select v-model="country" class="hud-input md:w-48">
+          <option value="">SEMUA NEGARA</option>
+          <option v-for="c in countriesQ.data.value ?? []" :key="c.country" :value="c.country">
+            {{ c.country.toUpperCase() }} ({{ c.count }})
+          </option>
+        </select>
+      </div>
+    </HudPanel>
 
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-      <div class="relative flex-1">
-        <i
-          class="fa-solid fa-magnifying-glass pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-        ></i>
-        <input
-          v-model="search"
-          type="text"
-          placeholder="Cari nama atau domain"
-          class="input pl-9"
+    <HudPanel
+      :title="`Daftar Vendor (${items.length})`"
+      code="VND-LIST"
+    >
+      <template #actions>
+        <span class="hud-chip text-2xs">LIVE 30s</span>
+        <span
+          v-if="isLoading"
+          class="font-mono text-2xs uppercase tracking-ops text-warn-600 dark:text-warn-400"
+        >
+          MEMUAT...
+        </span>
+      </template>
+
+      <div v-if="items.length === 0 && !isLoading">
+        <HudEmptyState
+          icon="building"
+          title="Tidak ada vendor"
+          hint="Belum ada vendor yang cocok dengan filter saat ini. Coba ubah filter atau jalankan operasi crawl baru."
         />
       </div>
-      <select v-model="industry" class="input sm:w-44">
-        <option value="">Semua industri</option>
-        <option value="defense">Defense</option>
-        <option value="cybersecurity">Cybersecurity</option>
-        <option value="law_enforcement">Law enforcement</option>
-        <option value="surveillance">Surveillance</option>
-        <option value="aerospace">Aerospace</option>
-      </select>
-      <select v-model="country" class="input sm:w-44">
-        <option value="">Semua negara</option>
-        <option v-for="c in countriesQ.data.value ?? []" :key="c.country" :value="c.country">
-          {{ c.country }} ({{ c.count }})
-        </option>
-      </select>
-    </div>
 
-    <DataTable :items="items" :columns="[...columns]" row-key="domain" :loading="isLoading">
-      <template #cell-company_name="{ row }">
-        <RouterLink
-          :to="`/vendors/${row.domain}`"
-          class="flex items-center gap-3 font-medium text-accent-600 hover:underline dark:text-accent-400"
-        >
-          <span
-            v-if="!row.logo_url"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-          >
-            {{ row.company_name.charAt(0) }}
-          </span>
-          <img
-            v-else
-            :src="row.logo_url"
-            :alt="row.company_name"
-            class="h-8 w-8 shrink-0 rounded-md object-contain"
-            referrerpolicy="no-referrer"
-          />
-          <span>{{ row.company_name }}</span>
-        </RouterLink>
-      </template>
-      <template #cell-domain="{ row }">
-        <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ row.domain }}</span>
-      </template>
-      <template #cell-industries="{ row }">
-        <div class="flex flex-wrap gap-1">
-          <IndustryBadge v-for="tag in row.industries.slice(0, 2)" :key="tag" :tag="tag" />
-          <span
-            v-if="row.industries.length > 2"
-            class="badge bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300"
-          >
-            +{{ row.industries.length - 2 }}
-          </span>
-        </div>
-      </template>
-      <template #cell-address="{ row }">
-        <span class="text-sm">
-          {{ row.address?.country ?? '-' }}
-        </span>
-      </template>
-      <template #cell-confidence_score="{ row }">
-        <CompletenessBar :score="row.confidence_score" show-label />
-      </template>
-      <template #cell-source="{ row }">
-        <span :class="['badge', sourceBadge(row).cls]">
-          <i :class="sourceBadge(row).icon"></i>
-          {{ sourceBadge(row).label }}
-        </span>
-      </template>
-    </DataTable>
+      <div v-else class="overflow-x-auto">
+        <table class="hud-table">
+          <thead>
+            <tr>
+              <th class="w-[26%]">Perusahaan</th>
+              <th class="w-[16%]">Domain</th>
+              <th class="w-[8%] text-center">Status</th>
+              <th class="w-[18%]">Industri</th>
+              <th class="w-[8%]">Negara</th>
+              <th class="w-[10%]">Kelengkapan</th>
+              <th class="w-[8%] text-center">Sumber</th>
+              <th class="w-[4%] text-center">Bhs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in items" :key="row.vendor_id">
+              <td>
+                <RouterLink
+                  :to="`/vendors/${row.vendor_id || row.domain}`"
+                  class="flex items-center gap-2 font-medium text-base-800 hover:text-accent-600 dark:text-base-100 dark:hover:text-accent-300"
+                >
+                  <span
+                    v-if="!row.logo_url"
+                    class="flex h-7 w-7 shrink-0 items-center justify-center border border-base-200 bg-base-50 font-mono text-2xs font-semibold text-base-700 dark:border-base-700 dark:bg-base-800 dark:text-base-200"
+                  >
+                    {{ row.company_name.charAt(0).toUpperCase() }}
+                  </span>
+                  <img
+                    v-else
+                    :src="row.logo_url"
+                    :alt="row.company_name"
+                    class="h-7 w-7 shrink-0 border border-base-200 bg-white object-contain p-0.5 dark:border-base-700 dark:bg-base-800"
+                    referrerpolicy="no-referrer"
+                  />
+                  <span class="truncate">{{ row.company_name }}</span>
+                </RouterLink>
+              </td>
+              <td>
+                <span
+                  v-if="row.domain"
+                  class="hud-mono-num truncate text-2xs text-base-600 dark:text-base-300"
+                >
+                  {{ row.domain }}
+                </span>
+                <span
+                  v-else
+                  class="hud-mono-num truncate text-2xs text-base-400 dark:text-base-500"
+                >
+                  -
+                </span>
+              </td>
+              <td class="text-center">
+                <HudStatusPill
+                  :tone="statusToneMap[row.status] ?? 'muted'"
+                  :label="statusLabelMap[row.status] ?? row.status.toUpperCase()"
+                />
+              </td>
+              <td>
+                <div class="flex flex-wrap gap-1">
+                  <HudIndustryBadge
+                    v-for="tag in row.industries.slice(0, 2)"
+                    :key="tag"
+                    :label="tag"
+                  />
+                  <span v-if="row.industries.length > 2" class="hud-chip">
+                    +{{ row.industries.length - 2 }}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <span class="hud-mono-num text-2xs uppercase">
+                  {{ row.address?.country ?? '-' }}
+                </span>
+              </td>
+              <td>
+                <HudCompletenessBar :score="row.confidence_score" show-label />
+              </td>
+              <td class="text-center">
+                <HudStatusPill
+                  :tone="sourcePill(row).tone"
+                  :label="sourcePill(row).label"
+                />
+              </td>
+              <td class="text-center">
+                <span
+                  class="hud-mono-num text-2xs uppercase"
+                  :class="row.language_code === 'id' ? 'text-accent-600 dark:text-accent-300' : 'text-base-400 dark:text-base-500'"
+                >
+                  {{ row.language_code === 'id' ? 'ID' : 'EN' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </HudPanel>
   </div>
 </template>

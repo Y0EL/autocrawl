@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -33,9 +34,13 @@ JsonType = JSONB().with_variant(JSON(), "sqlite")
 class VendorORM(Base):
     __tablename__ = "vendors"
 
-    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    vendor_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    domain: Mapped[str | None] = mapped_column(String(253), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="enriched", server_default="enriched", index=True
+    )
     company_name: Mapped[str] = mapped_column(String(500), nullable=False)
-    canonical_url: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text)
     tagline: Mapped[str | None] = mapped_column(Text)
 
@@ -87,6 +92,7 @@ class VendorORM(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint("domain", name="uq_vendors_domain"),
         Index("ix_vendors_country", "registrar_country"),
         Index("ix_vendors_confidence_desc", "confidence_score"),
     )
@@ -180,3 +186,110 @@ class RunORM(Base):
     firecrawl_credits_used: Mapped[int] = mapped_column(Integer, default=0)
     openai_tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str | None] = mapped_column(Text)
+    exhibitors_resolve_failed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    exhibitors_enrich_failed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    exhibitors_validation_rejected: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    exhibitors_scope_rejected: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class ExhibitorRefORM(Base):
+    """Audit table for every ExhibitorRef extracted from PDF or HTML.
+
+    Lifecycle status tracks where each ref ends up: extracted → resolved/resolve_failed,
+    then enriched/dedup_skipped/enrich_failed/validation_rejected/scope_rejected.
+    Failure category buckets the reason so we can diagnose pipeline drop-off.
+    """
+
+    __tablename__ = "exhibitor_refs"
+
+    ref_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    expo_id: Mapped[str | None] = mapped_column(
+        String(200),
+        ForeignKey("expos.expo_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    raw_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    booth: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    provenance: Mapped[list] = mapped_column(JsonType, nullable=False, default=list)
+
+    status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="extracted", server_default="extracted", index=True
+    )
+    failure_category: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_domain: Mapped[str | None] = mapped_column(String(253), nullable=True, index=True)
+    resolve_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("expo_id", "name", "raw_url", name="uq_exhref_expo_name_url"),
+        Index("ix_exhref_status_category", "status", "failure_category"),
+    )
+
+
+class ScopeRuleORM(Base):
+    """User-editable overlay over the YAML scope/blacklist defaults.
+
+    Effective rule set = rows where enabled=true. YAML defaults are
+    auto-imported on startup with source='yaml_default' so the UI can show
+    them transparently and let the user toggle them off without losing
+    visibility (hard-delete is blocked for yaml_default rows).
+    """
+
+    __tablename__ = "scope_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="user", server_default="user"
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("kind", "value", name="uq_scope_rule_kind_value"),
+        Index("ix_scope_rule_kind_enabled", "kind", "enabled"),
+    )
+
+
+class AppPromptORM(Base):
+    """Single-row-per-key store for user-editable LLM system prompts."""
+
+    __tablename__ = "app_prompts"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

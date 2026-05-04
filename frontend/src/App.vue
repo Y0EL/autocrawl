@@ -13,5 +13,12 @@ const { isDark } = useTheme()
     position="top-right"
     rich-colors
     close-button
+    :toast-options="{
+      style: {
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '12px',
+        borderRadius: '0',
+      },
+    }"
   />
 </template>

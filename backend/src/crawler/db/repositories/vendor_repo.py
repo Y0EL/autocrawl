@@ -12,9 +12,11 @@ from ..models import VendorORM
 
 def _to_orm_dict(v: Vendor) -> dict[str, Any]:
     return {
+        "vendor_id": v.vendor_id,
+        "status": v.status,
         "domain": v.domain,
         "company_name": v.company_name,
-        "canonical_url": str(v.canonical_url),
+        "canonical_url": str(v.canonical_url) if v.canonical_url else None,
         "description": v.description,
         "tagline": v.tagline,
         "industries": list(v.industries or []),
@@ -51,6 +53,8 @@ def _to_orm_dict(v: Vendor) -> dict[str, Any]:
 
 def orm_to_dict(orm: VendorORM) -> dict[str, Any]:
     return {
+        "vendor_id": getattr(orm, "vendor_id", None),
+        "status": getattr(orm, "status", "enriched") or "enriched",
         "domain": orm.domain,
         "company_name": orm.company_name,
         "canonical_url": orm.canonical_url,
@@ -89,14 +93,26 @@ def orm_to_dict(orm: VendorORM) -> dict[str, Any]:
 
 
 async def upsert(session: AsyncSession, vendor: Vendor) -> VendorORM:
+    """Upsert a vendor.
+
+    Dual-key behavior:
+    - If vendor.domain is set, dedup by domain (UPDATE if exists, else INSERT).
+    - If vendor.domain is None (status=unresolved), always INSERT a new row
+      keyed by vendor_id. Multiple unresolved candidates with the same name
+      can coexist until a resolver run later promotes one of them.
+    """
     payload = _to_orm_dict(vendor)
-    existing = await session.get(VendorORM, vendor.domain)
+    existing: VendorORM | None = None
+    if vendor.domain:
+        stmt = select(VendorORM).where(VendorORM.domain == vendor.domain)
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+
     if existing is None:
         existing = VendorORM(**payload)
         session.add(existing)
     else:
         for key, value in payload.items():
-            if key == "first_enriched_at":
+            if key in ("first_enriched_at", "vendor_id"):
                 continue
             setattr(existing, key, value)
         merged_expos = list(dict.fromkeys((existing.expos_seen or []) + (payload["expos_seen"] or [])))
@@ -106,11 +122,17 @@ async def upsert(session: AsyncSession, vendor: Vendor) -> VendorORM:
 
 
 async def get_by_domain(session: AsyncSession, domain: str) -> VendorORM | None:
-    return await session.get(VendorORM, domain)
+    stmt = select(VendorORM).where(VendorORM.domain == domain).limit(1)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_by_vendor_id(session: AsyncSession, vendor_id: str) -> VendorORM | None:
+    return await session.get(VendorORM, vendor_id)
 
 
 async def add_expo(session: AsyncSession, domain: str, expo_id: str) -> bool:
-    orm = await session.get(VendorORM, domain)
+    stmt = select(VendorORM).where(VendorORM.domain == domain).limit(1)
+    orm = (await session.execute(stmt)).scalar_one_or_none()
     if orm is None:
         return False
     if expo_id in (orm.expos_seen or []):
@@ -127,6 +149,7 @@ async def list_paginated(
     industry: str | None = None,
     country: str | None = None,
     search: str | None = None,
+    status: str | None = None,
     limit: int = 20,
     offset: int = 0,
     sort: str = "last_enriched_at:desc",
@@ -134,9 +157,14 @@ async def list_paginated(
     stmt = select(VendorORM)
     count_stmt = select(func.count()).select_from(VendorORM)
 
+    if status:
+        cond = VendorORM.status == status
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
+
     if search:
         like = f"%{search.lower()}%"
-        cond = func.lower(VendorORM.domain).like(like) | func.lower(VendorORM.company_name).like(like)
+        cond = func.lower(func.coalesce(VendorORM.domain, "")).like(like) | func.lower(VendorORM.company_name).like(like)
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
 

@@ -1,3 +1,10 @@
-from . import expo_repo, pdf_repo, run_repo, vendor_repo
+from . import exhibitor_ref_repo, expo_repo, pdf_repo, run_repo, scope_repo, vendor_repo
 
-__all__ = ["vendor_repo", "expo_repo", "pdf_repo", "run_repo"]
+__all__ = [
+    "vendor_repo",
+    "expo_repo",
+    "pdf_repo",
+    "run_repo",
+    "exhibitor_ref_repo",
+    "scope_repo",
+]

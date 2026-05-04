@@ -7,12 +7,15 @@ expo_id to a vendor we've already enriched).
 from __future__ import annotations
 
 import json
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import get_settings
 from ..observability.logger import get_logger
 from ..observability.metrics import phase_2_progress, vendors_enriched_total
-from ..schemas import Expo, Vendor
+from ..schemas import ExhibitorRef, Expo, Vendor
+from ..utils.text import sanitize_list, sanitize_punctuation
 from ..store.db_reporter import (
     append_expo_to_vendor,
     persist_expo_to_db,
@@ -39,12 +42,31 @@ def _vendor_path(domain: str) -> Path:
     return settings.data_dir / "reports" / "vendors" / f"{safe}.json"
 
 
-async def persist_vendor(vendor: Vendor) -> bool:
+def _sanitize_vendor_text_fields(vendor: Vendor) -> None:
+    """Strip em-dash, en-dash, unicode hyphens, semicolons from user-facing fields."""
+    vendor.description = sanitize_punctuation(vendor.description)
+    vendor.tagline = sanitize_punctuation(vendor.tagline)
+    vendor.description_original = sanitize_punctuation(vendor.description_original)
+    vendor.tagline_original = sanitize_punctuation(vendor.tagline_original)
+    vendor.products = sanitize_list(vendor.products) or []
+    vendor.industries = sanitize_list(vendor.industries) or []
+    vendor.products_original = sanitize_list(vendor.products_original) or []
+    vendor.industries_original = sanitize_list(vendor.industries_original) or []
+
+
+async def persist_vendor(vendor: Vendor) -> tuple[bool, str | None]:
+    """Persist vendor or reject. Returns (persisted, rejection_category).
+
+    rejection_category is None on success. On failure: "validation_rejected"
+    or "scope_rejected" so callers can map to ExhibitorRefORM.failure_category.
+    """
+    settings = get_settings()
+    _sanitize_vendor_text_fields(vendor)
     is_valid, completeness, issues = validate(vendor)
     vendor.confidence_score = max(vendor.confidence_score, completeness)
     if not is_valid:
         _log.info("reporter.vendor_rejected_validation", domain=vendor.domain, issues=issues)
-        return False
+        return False, "validation_rejected"
 
     # Industry scope gate: reject hotels, news media, academic, event platforms.
     in_scope, scope_meta = await is_in_scope(vendor)
@@ -56,7 +78,12 @@ async def persist_vendor(vendor: Vendor) -> bool:
             industry=scope_meta.get("industry_tag"),
             reason=scope_meta.get("scope_reason", "")[:200],
         )
-        return False
+        if not settings.keep_out_of_scope:
+            return False, "scope_rejected"
+        # Persist with status flag so the row stays auditable.
+        vendor.status = "scope_rejected"
+        await persist_vendor_to_db(vendor)
+        return False, "scope_rejected"
 
     if scope_meta.get("industry_tag") and scope_meta["industry_tag"] != "other":
         if scope_meta["industry_tag"] not in vendor.industries:
@@ -65,13 +92,17 @@ async def persist_vendor(vendor: Vendor) -> bool:
     await write_vendor(vendor)
     await update_manifest(vendor=vendor)
     await persist_vendor_to_db(vendor)
-    await add_vector(
-        vendor_id=vendor.domain,
-        name=vendor.company_name,
-        domain=vendor.domain,
-        tagline=vendor.tagline,
-        payload={"url": str(vendor.canonical_url), "industry": scope_meta.get("industry_tag", "")},
-    )
+    if vendor.domain:
+        await add_vector(
+            vendor_id=vendor.domain,
+            name=vendor.company_name,
+            domain=vendor.domain,
+            tagline=vendor.tagline,
+            payload={
+                "url": str(vendor.canonical_url) if vendor.canonical_url else "",
+                "industry": scope_meta.get("industry_tag", ""),
+            },
+        )
     await _maybe_emit_phase_2_unlock()
     _log.info(
         "reporter.vendor_persisted",
@@ -79,7 +110,53 @@ async def persist_vendor(vendor: Vendor) -> bool:
         completeness=completeness,
         industry=scope_meta.get("industry_tag"),
     )
-    return True
+    return True, None
+
+
+async def persist_unresolved_vendor(ref: ExhibitorRef, *, failure_category: str | None = None) -> bool:
+    """Persist an unresolved ref as a Vendor row with status='unresolved'.
+
+    Used when the resolver could not find a domain but we still want the
+    company name + provenance to be queryable from the vendors table.
+    Domain and canonical_url are NULL. dedup is by (vendor_id) only.
+    """
+    settings = get_settings()
+    if not settings.persist_unresolved:
+        return False
+    now = datetime.now(timezone.utc)
+    vendor = Vendor(
+        vendor_id=str(uuid.uuid4()),
+        status="unresolved",
+        domain=None,
+        canonical_url=None,
+        company_name=ref.name,
+        description=ref.short_description,
+        expos_seen=[ref.expo_id] if ref.expo_id else [],
+        source_trail=list(ref.provenance or []),
+        first_enriched_at=now,
+        last_enriched_at=now,
+        raw_extracts={
+            "unresolved": True,
+            "failure_category": failure_category or "unknown",
+            "ref_name": ref.name,
+        },
+    )
+    try:
+        await persist_vendor_to_db(vendor)
+        _log.info(
+            "reporter.unresolved_persisted",
+            name=ref.name[:80],
+            expo_id=ref.expo_id,
+            failure_category=failure_category,
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        _log.warning(
+            "reporter.unresolved_persist_failed",
+            name=ref.name[:80],
+            error=str(e)[:200],
+        )
+        return False
 
 
 async def merge_existing_with_expo(domain: str, expo_id: str) -> bool:
@@ -139,6 +216,7 @@ async def _maybe_emit_phase_2_unlock() -> None:
 
 __all__ = [
     "persist_vendor",
+    "persist_unresolved_vendor",
     "persist_expo",
     "merge_existing_with_expo",
     "vendors_enriched_total",  # re-exported for graph builder

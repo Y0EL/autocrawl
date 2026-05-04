@@ -431,5 +431,362 @@ def api_serve(
     uvicorn.run("crawler.api:app", host=host, port=port, reload=reload, proxy_headers=True)
 
 
+@app.command(name="backfill-pdfs")
+def backfill_pdfs() -> None:
+    """Walk data/pdfs/<expo>/ and insert every PDF into the pdfs table.
+
+    Idempotent — re-runs are safe due to SHA256 dedup in pdf_repo.upsert.
+    Reads the per-file `.meta.json` sidecar for size/timestamp; falls back
+    to filesystem stat if the sidecar is missing.
+    """
+    configure_logging()
+    asyncio.run(_backfill_pdfs_impl())
+
+
+async def _backfill_pdfs_impl() -> None:
+    """Backfill walk pdfs root, insert per-PDF in fresh session.
+
+    Two FK realities we handle:
+    - `pdfs.expo_id` has FK to `expos.expo_id`. If the expo isn't in DB
+      (typical when JSON imports were never done), we set expo_id=None
+      so the row still lands.
+    - One bad row poisons a SQLAlchemy session. We use a fresh session
+      per PDF so failures stay isolated.
+    """
+    import hashlib
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from .db.engine import dispose_engine, get_sessionmaker
+    from .db.models import ExpoORM
+    from .db.repositories import pdf_repo
+
+    settings = get_settings()
+    pdfs_root: Path = settings.data_dir / "pdfs"
+
+    if not pdfs_root.exists():
+        console.print(f"[yellow]No pdfs directory at {pdfs_root}[/yellow]")
+        return
+
+    sessionmaker = get_sessionmaker()
+
+    async with sessionmaker() as scout:
+        rows = (await scout.execute(select(ExpoORM.expo_id))).scalars().all()
+        known_expos: set[str] = set(rows)
+    console.print(f"[dim]known expos in DB: {len(known_expos)}[/dim]")
+
+    inserted = 0
+    orphaned = 0
+    failed = 0
+
+    for expo_dir in sorted(pdfs_root.iterdir()):
+        if not expo_dir.is_dir():
+            continue
+        dir_expo_id = expo_dir.name
+
+        for pdf_file in sorted(expo_dir.glob("*.pdf")):
+            sidecar = pdf_file.with_suffix(pdf_file.suffix + ".meta.json")
+            meta: dict = {}
+            if sidecar.exists():
+                try:
+                    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    meta = {}
+
+            source_url = meta.get("source_url") or f"file://{pdf_file}"
+            sha256 = meta.get("sha256")
+            if not sha256:
+                sha256 = hashlib.sha256(pdf_file.read_bytes()).hexdigest()
+
+            size_bytes = int(meta.get("size_bytes") or pdf_file.stat().st_size)
+            ts = meta.get("downloaded_at")
+            downloaded_at = datetime.now(timezone.utc)
+            if ts:
+                try:
+                    downloaded_at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except Exception:  # noqa: BLE001
+                    pass
+
+            effective_expo_id: str | None = dir_expo_id
+            if dir_expo_id not in known_expos:
+                effective_expo_id = None
+                orphaned += 1
+
+            async with sessionmaker() as session:
+                try:
+                    await pdf_repo.upsert(
+                        session,
+                        filename=pdf_file.name,
+                        source_url=source_url,
+                        expo_id=effective_expo_id,
+                        sha256=sha256,
+                        size_bytes=size_bytes,
+                        page_count=int(meta.get("page_count") or 0),
+                        vendors_found=int(meta.get("vendors_found") or 0),
+                        downloaded_at=downloaded_at,
+                        meta={
+                            "backfilled": True,
+                            "dir_expo_id": dir_expo_id,
+                            "source_meta": meta,
+                        },
+                    )
+                    await session.commit()
+                    inserted += 1
+                    if inserted % 25 == 0:
+                        console.print(f"[dim]committed {inserted} PDFs so far[/dim]")
+                except Exception as exc:  # noqa: BLE001
+                    await session.rollback()
+                    failed += 1
+                    console.print(f"[red]failed {pdf_file.name}: {str(exc)[:160]}[/red]")
+
+    await dispose_engine()
+
+    table = Table(title="PDF Backfill")
+    table.add_column("Result")
+    table.add_column("Count", justify="right")
+    table.add_row("Inserted / Updated", str(inserted))
+    table.add_row("Orphaned (expo not in DB, expo_id=null)", str(orphaned))
+    table.add_row("Failed", str(failed))
+    console.print(table)
+
+
+@app.command(name="reprocess-pdfs")
+def reprocess_pdfs(
+    expo_id: str = typer.Option(None, "--expo-id", help="Reprocess PDFs only for this expo"),
+    limit: int = typer.Option(0, "--limit", help="Max PDFs to reprocess (0 = no limit)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print what would happen, no DB writes"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--all", help="Skip PDFs already showing vendors_found > 0"),
+    only_failed: bool = typer.Option(False, "--only-failed", help="Re-resolve refs with status=resolve_failed (no PDF walk)"),
+    from_status: str = typer.Option("", "--from-status", help="Process refs from a specific status (e.g. extracted, resolve_failed). Skips PDF walk."),
+    concurrency: int = typer.Option(0, "--concurrency", help="Override max concurrent ref processing (default = settings.crawl4ai_max_concurrent)"),
+) -> None:
+    """Re-extract vendors from existing PDFs and feed through resolve+enrich pipeline.
+
+    Idempotent: pdf_store.download() returns cached path, list_exhibitors()
+    re-parses the on-disk PDF and rewrites .pages.jsonl. Each ref is upserted
+    to exhibitor_refs (audit table) and then put through the standalone
+    resolve+enrich+persist path.
+    """
+    configure_logging()
+    asyncio.run(_reprocess_pdfs_impl(
+        expo_id=expo_id,
+        limit=limit,
+        dry_run=dry_run,
+        skip_existing=skip_existing,
+        only_failed=only_failed,
+        from_status=from_status or None,
+        concurrency=concurrency,
+    ))
+
+
+async def _reprocess_pdfs_impl(
+    *,
+    expo_id: str | None,
+    limit: int,
+    dry_run: bool,
+    skip_existing: bool,
+    only_failed: bool,
+    from_status: str | None,
+    concurrency: int,
+) -> None:
+    from sqlalchemy import select
+
+    from .db.engine import dispose_engine, get_sessionmaker, init_db
+    from .db.models import ExpoORM
+    from .db.repositories import exhibitor_ref_repo as ref_repo
+    from .orchestrator.standalone import process_ref
+
+    settings = get_settings()
+    sm = get_sessionmaker()
+
+    try:
+        await init_db()
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]init_db failed: {str(e)[:200]}[/red]")
+        raise typer.Exit(1) from None
+
+    cap = concurrency if concurrency > 0 else max(1, int(settings.crawl4ai_max_concurrent))
+    sem = asyncio.Semaphore(cap)
+    console.print(f"[dim]concurrency: {cap}[/dim]")
+
+    counters = {
+        "processed": 0,
+        "extracted": 0,
+        "resolved": 0,
+        "enriched": 0,
+        "dedup_skipped": 0,
+        "resolve_failed": 0,
+        "enrich_failed": 0,
+        "validation_rejected": 0,
+        "scope_rejected": 0,
+        "skipped_pdfs": 0,
+        "failed_pdfs": 0,
+    }
+
+    async def _bump(outcome_status: str) -> None:
+        if outcome_status in counters:
+            counters[outcome_status] += 1
+
+    async def _run_with_sem(ref) -> None:
+        async with sem:
+            try:
+                outcome = await process_ref(ref)
+                await _bump(outcome.status)
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[red]process_ref crashed for {ref.name[:60]}: {str(e)[:160]}[/red]")
+
+    target_status: str | None = None
+    if only_failed:
+        target_status = "resolve_failed"
+    elif from_status:
+        target_status = from_status
+
+    if target_status:
+        offset = 0
+        page_size = 100
+        total_target = 0
+        async with sm() as session:
+            total_target = await ref_repo.count_total(session, status=target_status)
+        if total_target == 0:
+            console.print(f"[yellow]no refs with status={target_status}[/yellow]")
+            await dispose_engine()
+            return
+        cap_total = limit if limit > 0 else total_target
+        console.print(f"[cyan]processing up to {cap_total} refs with status={target_status}[/cyan]")
+
+        retried = 0
+        while retried < cap_total:
+            async with sm() as session:
+                rows = await ref_repo.list_by_status(
+                    session, status=target_status, limit=page_size, offset=offset
+                )
+            if not rows:
+                break
+            tasks = []
+            for orm in rows:
+                if retried >= cap_total:
+                    break
+                retried += 1
+                tasks.append(asyncio.create_task(_retry_one_with_sem(sem, orm.ref_id, _bump, dry_run)))
+            await asyncio.gather(*tasks, return_exceptions=True)
+            # Re-list from offset 0 each time since rows transition out of target status
+            offset = 0
+            console.print(f"[dim]processed {retried}/{cap_total}[/dim]")
+
+        await dispose_engine()
+        _print_reprocess_table(counters, mode=f"status={target_status}")
+        return
+
+    pdfs_root: Path = settings.data_dir / "pdfs"
+    if not pdfs_root.exists():
+        console.print(f"[yellow]No pdfs directory at {pdfs_root}[/yellow]")
+        await dispose_engine()
+        return
+
+    async with sm() as scout:
+        rows = (await scout.execute(select(ExpoORM.expo_id))).scalars().all()
+        known_expos: set[str] = set(rows)
+    console.print(f"[dim]known expos in DB: {len(known_expos)}[/dim]")
+
+    from .tools.scrapers import pdf_extractor as pdf_extractor_mod
+
+    for expo_dir in sorted(pdfs_root.iterdir()):
+        if not expo_dir.is_dir():
+            continue
+        dir_expo_id = expo_dir.name
+        if expo_id and dir_expo_id != expo_id:
+            continue
+        if dir_expo_id not in known_expos:
+            console.print(f"[yellow]skipping orphan dir {dir_expo_id} (expo not in DB)[/yellow]")
+            continue
+
+        for pdf_file in sorted(expo_dir.glob("*.pdf")):
+            if limit > 0 and counters["processed"] >= limit:
+                break
+
+            sidecar = pdf_file.with_suffix(pdf_file.suffix + ".meta.json")
+            meta: dict = {}
+            if sidecar.exists():
+                try:
+                    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    meta = {}
+            source_url = meta.get("source_url") or f"file://{pdf_file}"
+
+            if skip_existing:
+                async with sm() as session:
+                    from sqlalchemy import select as _sel
+
+                    from .db.models import PdfORM
+
+                    existing = (
+                        await session.execute(_sel(PdfORM).where(PdfORM.filename == pdf_file.name))
+                    ).scalar_one_or_none()
+                    if existing is not None and existing.vendors_found > 0:
+                        counters["skipped_pdfs"] += 1
+                        continue
+
+            counters["processed"] += 1
+            console.print(f"[cyan]reprocessing[/cyan] {dir_expo_id}/{pdf_file.name}")
+
+            try:
+                refs = await pdf_extractor_mod.list_exhibitors(source_url, dir_expo_id)
+            except Exception as e:  # noqa: BLE001
+                counters["failed_pdfs"] += 1
+                console.print(f"[red]extraction failed {pdf_file.name}: {str(e)[:160]}[/red]")
+                continue
+
+            counters["extracted"] += len(refs)
+            console.print(f"[green]extracted {len(refs)} refs from {pdf_file.name}[/green]")
+
+            if dry_run or not refs:
+                continue
+
+            tasks = [asyncio.create_task(_run_with_sem(r)) for r in refs]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        if limit > 0 and counters["processed"] >= limit:
+            break
+
+    await dispose_engine()
+    _print_reprocess_table(counters, mode="walk-pdfs")
+
+
+async def _retry_one_with_sem(sem, ref_id: str, bumper, dry_run: bool) -> None:
+    async with sem:
+        if dry_run:
+            return
+        try:
+            from .orchestrator.standalone import process_ref_by_id
+
+            outcome = await process_ref_by_id(ref_id)
+            if outcome is not None:
+                await bumper(outcome.status)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]retry crashed {ref_id}: {str(e)[:160]}[/red]")
+
+
+def _print_reprocess_table(counters: dict, *, mode: str) -> None:
+    table = Table(title=f"PDF Reprocess Summary ({mode})")
+    table.add_column("Metric")
+    table.add_column("Count", justify="right")
+    for k in [
+        "processed",
+        "extracted",
+        "resolved",
+        "enriched",
+        "dedup_skipped",
+        "resolve_failed",
+        "enrich_failed",
+        "validation_rejected",
+        "scope_rejected",
+        "skipped_pdfs",
+        "failed_pdfs",
+    ]:
+        table.add_row(k, str(counters.get(k, 0)))
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()

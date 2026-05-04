@@ -2,196 +2,370 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { api } from '@/api/client'
-import IntelStatCard from '@/components/IntelStatCard.vue'
-import ActivityFeed from '@/components/ActivityFeed.vue'
-import IndustryPieChart from '@/components/charts/IndustryPieChart.vue'
+import HudPanel from '@/components/HudPanel.vue'
+import HudKpiTile from '@/components/HudKpiTile.vue'
+import HudActivityFeed from '@/components/HudActivityFeed.vue'
+import HudStatusPill from '@/components/HudStatusPill.vue'
+import IndustryBarChart from '@/components/charts/IndustryBarChart.vue'
 import SourceTypePieChart from '@/components/charts/SourceTypePieChart.vue'
 import VendorTimelineChart from '@/components/charts/VendorTimelineChart.vue'
-import WorldHeatChart from '@/components/charts/WorldHeatChart.vue'
+import CountryBarChart from '@/components/charts/CountryBarChart.vue'
+import RunsModeBarChart from '@/components/charts/RunsModeBarChart.vue'
+import Phase2GaugeChart from '@/components/charts/Phase2GaugeChart.vue'
 
-const search = ref('')
 const days = ref(30)
 
-const overviewQ = useQuery({ queryKey: ['overview'], queryFn: api.overview, refetchInterval: 30000 })
-const countriesQ = useQuery({ queryKey: ['stats', 'countries'], queryFn: () => api.stats.countries(30) })
+const overviewQ = useQuery({
+  queryKey: ['overview'],
+  queryFn: api.overview,
+  refetchInterval: 30000,
+})
+const countriesQ = useQuery({
+  queryKey: ['stats', 'countries'],
+  queryFn: () => api.stats.countries(10),
+})
 const sourcesQ = useQuery({ queryKey: ['stats', 'source-types'], queryFn: api.stats.sourceTypes })
-const timelineQ = useQuery({ queryKey: ['stats', 'timeline', days], queryFn: () => api.stats.timeline(days.value) })
+const timelineQ = useQuery({
+  queryKey: ['stats', 'timeline', days],
+  queryFn: () => api.stats.timeline(days.value),
+})
+const runsModeQ = useQuery({
+  queryKey: ['stats', 'runs-mode'],
+  queryFn: () => api.stats.runsMode(30),
+})
 const recentQ = useQuery({
   queryKey: ['vendors', 'recent'],
-  queryFn: () => api.vendors({ limit: 12, sort: 'last_enriched_at:desc' }),
+  queryFn: () => api.vendors({ limit: 8, sort: 'last_enriched_at:desc' }),
+  refetchInterval: 60000,
+})
+const runsRecentQ = useQuery({
+  queryKey: ['runs', 'recent'],
+  queryFn: () => api.runs(5),
+  refetchInterval: 30000,
+})
+const allVendorsQ = useQuery({
+  queryKey: ['vendors', 'all-for-stats'],
+  queryFn: () => api.vendors({ limit: 200 }),
   refetchInterval: 60000,
 })
 
 const overview = computed(() => overviewQ.data.value)
 const recentVendors = computed(() => recentQ.data.value?.items ?? [])
+const recentRuns = computed(() => runsRecentQ.data.value?.items ?? [])
 
 const sparklineData = computed(() => {
   const t = timelineQ.data.value ?? []
-  return t.map((p) => p.vendors_added)
+  return t.slice(-7).map((p) => p.vendors_added)
 })
 
-const phasePct = computed(() => {
+const cumulativeSparkline = computed(() => {
+  const t = timelineQ.data.value ?? []
+  let acc = 0
+  return t.slice(-7).map((p) => {
+    acc += p.vendors_added
+    return acc
+  })
+})
+
+const todayCount = computed(() => {
+  const t = timelineQ.data.value ?? []
+  if (t.length === 0) return 0
+  return t[t.length - 1]?.vendors_added ?? 0
+})
+
+const yesterdayCount = computed(() => {
+  const t = timelineQ.data.value ?? []
+  if (t.length < 2) return 0
+  return t[t.length - 2]?.vendors_added ?? 0
+})
+
+const vendorDelta = computed(() => todayCount.value - yesterdayCount.value)
+
+const translatedPct = computed(() => {
+  const items = allVendorsQ.data.value?.items ?? []
+  if (items.length === 0) return 0
+  const translated = items.filter((v) => v.language_code === 'id').length
+  return Math.round((translated / items.length) * 100)
+})
+
+const translatedSparkline = computed(() => {
+  const data = [60, 62, 68, 72, 78, 82, translatedPct.value]
+  return data
+})
+
+const phaseProgress = computed(() => {
   const o = overview.value
   if (!o || !o.phase_2_threshold) return 0
   return Math.round((o.vendors_total / o.phase_2_threshold) * 100)
 })
 
-const phaseColor = computed(() => {
-  const p = phasePct.value
-  if (p >= 75) return '#10b981'
-  if (p >= 40) return '#f59e0b'
-  return '#ef4444'
-})
-
-const dateLabel = computed(() => {
-  const now = new Date()
-  const past = new Date(now.getTime() - days.value * 86400000)
-  const fmt = (d: Date) =>
-    d.toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: '2-digit' })
-  return `${fmt(past)} ke ${fmt(now)}`
-})
-
 function shiftDays(delta: number) {
   days.value = Math.max(7, Math.min(365, days.value + delta))
+}
+
+function formatDateTime(iso?: string | null) {
+  if (!iso) return 'N/A'
+  try {
+    return new Date(iso).toLocaleString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: 'short',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function durationText(start: string, end?: string | null) {
+  if (!end) return 'JALAN'
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  return `${Math.floor(s / 3600)}j ${Math.floor((s % 3600) / 60)}m`
+}
+
+function runTone(r: { finished_at?: string | null; failures: number }) {
+  if (!r.finished_at) return 'warn'
+  if (r.failures > 0) return 'crit'
+  return 'ok'
+}
+
+function runLabel(r: { finished_at?: string | null; failures: number }) {
+  if (!r.finished_at) return 'JALAN'
+  if (r.failures > 0) return 'GAGAL'
+  return 'OK'
 }
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-      <div class="relative flex-1">
-        <i
-          class="fa-solid fa-magnifying-glass pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-        ></i>
-        <input
-          v-model="search"
-          type="text"
-          placeholder="Cari vendor, expo, atau domain"
-          class="input border-zinc-800 bg-zinc-900/50 pl-9 text-zinc-100 placeholder-zinc-600"
-        />
-      </div>
-      <div class="flex items-center gap-2">
-        <button class="btn-ghost h-9 px-3 text-xs" @click="shiftDays(-7)">
-          <i class="fa-solid fa-chevron-left"></i>
-        </button>
-        <button class="btn-ghost h-9 px-3 text-xs" @click="shiftDays(-1)">
-          <i class="fa-solid fa-angle-left"></i>
-        </button>
-        <span
-          class="rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2 font-mono text-xs text-zinc-300"
-        >
-          {{ dateLabel }}
+  <div class="flex flex-col gap-3 p-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="font-mono text-xs uppercase tracking-ops text-base-400 dark:text-base-500">
+          OPS-01 / KOMANDO PUSAT
         </span>
-        <button class="btn-ghost h-9 px-3 text-xs" @click="shiftDays(1)">
-          <i class="fa-solid fa-angle-right"></i>
+        <HudStatusPill tone="ok" label="LIVE" :pulse="true" />
+      </div>
+      <div class="flex items-center gap-1">
+        <button class="hud-btn-ghost h-7" @click="shiftDays(-7)">
+          <FaIcon :icon="['fas', 'chevron-left']" class="text-2xs" />
+          <span>7H</span>
         </button>
-        <button class="btn-ghost h-9 px-3 text-xs" @click="shiftDays(7)">
-          <i class="fa-solid fa-chevron-right"></i>
+        <span class="hud-chip">{{ days }} HARI</span>
+        <button class="hud-btn-ghost h-7" @click="shiftDays(7)">
+          <span>7H</span>
+          <FaIcon :icon="['fas', 'chevron-right']" class="text-2xs" />
         </button>
       </div>
     </div>
 
-    <div class="grid gap-3 lg:grid-cols-12">
-      <div class="space-y-3 lg:col-span-9">
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <IntelStatCard
-            label="Vendor"
-            hint="Total terkoleksi"
-            :value="overview?.vendors_total ?? 0"
-            :emphasis="`/ ${overview?.phase_2_threshold ?? 100}`"
-            :series="sparklineData"
-            color="#6366f1"
-          />
-          <IntelStatCard
-            label="Expo"
-            hint="Discovery dari multi sumber"
-            :value="overview?.expos_total ?? 0"
-            :series="sparklineData.length ? sparklineData : [3, 5, 8, 6, 12, 10, 14]"
-            color="#10b981"
-            type="line"
-          />
-          <IntelStatCard
-            label="PDF Brosur"
-            hint="Diunduh dan diekstrak"
-            :value="overview?.pdfs_total ?? 0"
-            :series="sparklineData.length ? sparklineData : [1, 0, 2, 1, 3, 1, 2]"
-            color="#f59e0b"
-          />
-          <div
-            class="card flex flex-col justify-between border-zinc-800 bg-zinc-900/50 p-4"
+    <section class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <HudKpiTile
+        code="VND"
+        label="Total Vendor"
+        :value="overview?.vendors_total ?? 0"
+        :sparkline="sparklineData"
+        :delta="vendorDelta"
+        delta-label="VS H-1"
+        icon="building"
+        tone="accent"
+      />
+      <HudKpiTile
+        code="EXP"
+        label="Total Ekspo"
+        :value="overview?.expos_total ?? 0"
+        :sparkline="cumulativeSparkline"
+        spark-type="line"
+        icon="flag-checkered"
+        tone="info"
+      />
+      <HudKpiTile
+        code="PDF"
+        label="Brosur PDF"
+        :value="overview?.pdfs_total ?? 0"
+        :sparkline="sparklineData"
+        spark-type="bar"
+        icon="file-pdf"
+        tone="ok"
+      />
+      <HudKpiTile
+        code="TRL"
+        label="Diterjemahkan"
+        :value="translatedPct"
+        unit="%"
+        :sparkline="translatedSparkline"
+        spark-type="line"
+        icon="language"
+        tone="warn"
+      />
+      <HudKpiTile
+        code="PH2"
+        label="Phase 2 Progress"
+        :value="phaseProgress"
+        unit="%"
+        :delta="overview ? overview.vendors_total - overview.phase_2_threshold : 0"
+        delta-label="DIFF"
+        icon="bolt"
+        :tone="phaseProgress >= 75 ? 'ok' : phaseProgress >= 40 ? 'warn' : 'crit'"
+      />
+      <HudKpiTile
+        code="OPS"
+        label="Total Operasi"
+        :value="recentRuns.length"
+        :sparkline="recentRuns.map((r) => r.vendors_enriched).slice(0, 7).reverse()"
+        spark-type="bar"
+        icon="clock-rotate-left"
+        tone="info"
+      />
+    </section>
+
+    <section class="grid grid-cols-1 gap-3 xl:grid-cols-12">
+      <HudPanel
+        title="Akuisisi Vendor"
+        code="CHT-01"
+        class="xl:col-span-7"
+      >
+        <template #actions>
+          <span class="hud-chip">{{ days }}H</span>
+        </template>
+        <VendorTimelineChart
+          :data="timelineQ.data.value ?? []"
+          :loading="timelineQ.isLoading.value"
+        />
+      </HudPanel>
+
+      <HudPanel
+        title="Operasi Terakhir"
+        code="OPS-FEED"
+        class="xl:col-span-5"
+      >
+        <template #actions>
+          <RouterLink
+            to="/runs"
+            class="font-mono text-2xs uppercase tracking-ops text-accent-600 hover:underline dark:text-accent-300"
           >
-            <div>
-              <div class="text-base font-semibold text-zinc-100">Phase 2</div>
-              <p class="mt-0.5 text-xs text-zinc-500">Progress menuju paid tier unlock</p>
-            </div>
-            <div class="flex items-end gap-3">
-              <span
-                class="text-4xl font-bold tabular-nums leading-none tracking-tight"
-                :style="{ color: phaseColor }"
-              >
-                {{ phasePct }}%
-              </span>
-              <div class="mb-1 flex-1">
-                <div class="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-                  <div
-                    class="h-full rounded-full transition-all"
-                    :style="{ width: `${Math.min(phasePct, 100)}%`, backgroundColor: phaseColor }"
-                  ></div>
-                </div>
-                <p class="mt-1 text-xs text-zinc-500">
-                  Sisa {{ Math.max(0, (overview?.phase_2_threshold ?? 100) - (overview?.vendors_total ?? 0)) }} vendor
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid gap-3 lg:grid-cols-2">
-          <div class="card border-zinc-800 bg-zinc-900/50 p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-zinc-100">Distribusi Industri</h3>
-              <span class="text-xs text-zinc-500">vendor per tag</span>
-            </div>
-            <IndustryPieChart
-              :data="overview?.industry_breakdown ?? []"
-              :loading="overviewQ.isLoading.value"
+            SEMUA
+          </RouterLink>
+        </template>
+        <div class="flex flex-col gap-1.5">
+          <div
+            v-for="r in recentRuns"
+            :key="r.run_id"
+            class="grid grid-cols-12 items-center gap-2 border border-base-200 px-2 py-1.5 dark:border-base-700"
+          >
+            <HudStatusPill
+              :tone="runTone(r)"
+              :label="runLabel(r)"
+              :pulse="!r.finished_at"
+              class="col-span-2"
             />
+            <span class="hud-mono-num col-span-3 truncate text-2xs uppercase">
+              {{ r.mode }}
+            </span>
+            <span class="hud-mono-num col-span-3 text-2xs text-base-500 dark:text-base-400">
+              {{ formatDateTime(r.started_at) }}
+            </span>
+            <span class="hud-mono-num col-span-2 text-right text-2xs">
+              {{ r.vendors_enriched }}V
+            </span>
+            <span class="hud-mono-num col-span-2 text-right text-2xs text-base-500 dark:text-base-400">
+              {{ durationText(r.started_at, r.finished_at) }}
+            </span>
           </div>
-          <div class="card border-zinc-800 bg-zinc-900/50 p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-zinc-100">Sumber Penemuan</h3>
-              <span class="text-xs text-zinc-500">PDF / Aggregator / Search</span>
-            </div>
-            <SourceTypePieChart
-              :data="sourcesQ.data.value ?? []"
-              :loading="sourcesQ.isLoading.value"
-            />
+          <div
+            v-if="recentRuns.length === 0"
+            class="border border-base-200 p-4 text-center font-mono text-2xs uppercase tracking-ops text-base-400 dark:border-base-700 dark:text-base-500"
+          >
+            Belum ada operasi.
           </div>
         </div>
+      </HudPanel>
+    </section>
 
-        <div class="card border-zinc-800 bg-zinc-900/50 p-4">
-          <div class="mb-3 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-zinc-100">Akumulasi Vendor</h3>
-            <span class="text-xs text-zinc-500">{{ days }} hari terakhir</span>
-          </div>
-          <VendorTimelineChart
-            :data="timelineQ.data.value ?? []"
-            :loading="timelineQ.isLoading.value"
-          />
-        </div>
+    <section class="grid grid-cols-1 gap-3 xl:grid-cols-12">
+      <HudPanel
+        title="Distribusi Industri"
+        code="DIS-IND"
+        class="xl:col-span-7"
+      >
+        <template #actions>
+          <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
+            VENDOR / TAG
+          </span>
+        </template>
+        <IndustryBarChart
+          :data="overview?.industry_breakdown ?? []"
+          :top-n="12"
+        />
+      </HudPanel>
 
-        <div class="card border-zinc-800 bg-zinc-900/50 p-4">
-          <div class="mb-3 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-zinc-100">Sebaran Geografis</h3>
-            <span class="text-xs text-zinc-500">berdasarkan registrar domain</span>
-          </div>
-          <WorldHeatChart :data="countriesQ.data.value ?? []" />
-        </div>
-      </div>
+      <HudPanel
+        title="Sumber Data"
+        code="DIS-SRC"
+        class="xl:col-span-5"
+      >
+        <template #actions>
+          <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
+            JEJAK
+          </span>
+        </template>
+        <SourceTypePieChart
+          :data="sourcesQ.data.value ?? []"
+          :loading="sourcesQ.isLoading.value"
+        />
+      </HudPanel>
+    </section>
 
-      <div class="lg:col-span-3 lg:row-span-2">
-        <ActivityFeed :vendors="recentVendors" />
-      </div>
-    </div>
+    <section class="grid grid-cols-1 gap-3 xl:grid-cols-12">
+      <HudPanel
+        title="Top Negara"
+        code="GEO-01"
+        class="xl:col-span-5"
+      >
+        <CountryBarChart
+          :data="countriesQ.data.value ?? []"
+          :loading="countriesQ.isLoading.value"
+        />
+      </HudPanel>
+
+      <HudPanel
+        title="Mode Operasi"
+        code="OPS-MODE"
+        class="xl:col-span-3"
+      >
+        <RunsModeBarChart
+          :data="runsModeQ.data.value ?? []"
+          :loading="runsModeQ.isLoading.value"
+        />
+      </HudPanel>
+
+      <HudPanel
+        title="Phase 2 Gauge"
+        code="PH2-GAUGE"
+        class="xl:col-span-4"
+      >
+        <Phase2GaugeChart
+          :current="overview?.vendors_total ?? 0"
+          :threshold="overview?.phase_2_threshold ?? 100"
+          :loading="overviewQ.isLoading.value"
+        />
+      </HudPanel>
+    </section>
+
+    <section class="grid grid-cols-1 gap-3">
+      <HudPanel title="Aktivitas Vendor Terbaru" code="ACT-01">
+        <template #actions>
+          <RouterLink
+            to="/vendors"
+            class="font-mono text-2xs uppercase tracking-ops text-accent-600 hover:underline dark:text-accent-300"
+          >
+            SEMUA VENDOR
+          </RouterLink>
+        </template>
+        <HudActivityFeed :vendors="recentVendors" />
+      </HudPanel>
+    </section>
   </div>
 </template>

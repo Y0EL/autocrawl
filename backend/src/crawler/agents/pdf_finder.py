@@ -35,6 +35,130 @@ def _is_pdf_url(url: str) -> bool:
     return False
 
 
+_POSITIVE_KEYWORDS = (
+    "exhibitor",
+    "exhibitors",
+    "vendor",
+    "vendors",
+    "directory",
+    "participant",
+    "attendee",
+    "company-list",
+    "company_list",
+    "companylist",
+    "brochure",
+    "catalog",
+    "catalogue",
+    "show-guide",
+    "show_guide",
+    "showguide",
+    "showbook",
+    "official-program",
+    "official_program",
+    "program-book",
+    "expolist",
+    "floor-plan",
+    "floorplan",
+    "buyers-guide",
+    "buyer-guide",
+)
+
+_NEGATIVE_KEYWORDS = (
+    "terms",
+    "conditions",
+    "tnc",
+    "policy",
+    "policies",
+    "privacy",
+    "code-of-conduct",
+    "conduct",
+    "rules",
+    "regulations",
+    "regulation",
+    "sponsor-prospect",
+    "sponsorship",
+    "media-kit",
+    "press-kit",
+    "press-release",
+    "newsletter",
+    "agenda",
+    "schedule",
+    "invitation",
+    "invite",
+    "registration-form",
+    "application-form",
+    "manual",
+    "handbook",
+    "rulebook",
+    "guideline",
+    "faq",
+    "logo",
+    "branding",
+    "letterhead",
+    "ethics",
+    "contract",
+    "agreement",
+    "waiver",
+    "release-form",
+    "covid",
+    "safety-plan",
+    "evacuation",
+    "shipping",
+    "freight",
+    "venue-map",
+    "parking",
+    "directions",
+    "translator",
+    "interpreter",
+    "speech",
+    "speaker-bio",
+    "abstract",
+    "whitepaper",
+    "annual-report",
+    "financial-report",
+    "minutes",
+)
+
+
+def _score_pdf_relevance(url: str) -> float:
+    """Return relevance score 0..1. Higher = more likely to contain vendor list.
+
+    Cheap heuristic on URL path + filename. Checked BEFORE download to avoid
+    burning bandwidth + LLM tokens on terms-and-conditions / sponsor brochures.
+    """
+    if not url:
+        return 0.0
+    haystack = url.lower()
+    pos_hits = sum(1 for kw in _POSITIVE_KEYWORDS if kw in haystack)
+    neg_hits = sum(1 for kw in _NEGATIVE_KEYWORDS if kw in haystack)
+
+    score = 0.5  # neutral baseline (we don't know yet)
+    score += min(0.5, pos_hits * 0.25)
+    score -= min(0.7, neg_hits * 0.35)
+    return max(0.0, min(1.0, score))
+
+
+def _filter_relevant_pdfs(
+    urls: list[str], *, threshold: float, hard_reject_at: float = 0.15
+) -> list[str]:
+    """Drop PDFs scoring below hard_reject_at; keep the rest sorted by score desc."""
+    scored = [(u, _score_pdf_relevance(u)) for u in urls]
+    kept = [(u, s) for u, s in scored if s >= hard_reject_at]
+    rejected = [(u, s) for u, s in scored if s < hard_reject_at]
+    if rejected:
+        _log.info(
+            "pdf_finder.relevance_rejected",
+            count=len(rejected),
+            samples=[u for u, _ in rejected[:5]],
+        )
+    kept.sort(key=lambda x: x[1], reverse=True)
+    above_threshold = [u for u, s in kept if s >= threshold]
+    if above_threshold:
+        return above_threshold
+    # Fallback: nothing strong, return whatever we have left so we don't end up empty
+    return [u for u, _ in kept]
+
+
 async def _scrape_pdf_links_from_page(page_url: str) -> list[str]:
     from ..tools.browsers.fetcher import fetch
     from ..tools.parsers.html_parser import all_links
@@ -74,7 +198,28 @@ async def _targeted_search_pdf(expo_name: str, *, per_source: int = 6) -> list[s
     return sorted(found)
 
 
+async def _crawl4ai_pdf_search(expo_url: str | None) -> list[str]:
+    """Use Crawl4AI to inspect a page and return all PDF links."""
+    if not expo_url:
+        return []
+    if not get_settings().enable_crawl4ai:
+        return []
+    try:
+        from ..tools.crawl4ai_client import c4ai_find_pdfs
+
+        urls = await c4ai_find_pdfs(expo_url)
+    except Exception as e:  # noqa: BLE001
+        errors_total.labels(stage="pdf_finder", category="crawl4ai").inc()
+        _log.debug("pdf_finder.crawl4ai_failed", url=expo_url, error=str(e))
+        return []
+    return [canonical_url(u) for u in urls if _is_pdf_url(u)]
+
+
 async def _firecrawl_pdf_search(expo_name: str) -> list[str]:
+    """Legacy Firecrawl path. Skipped unless ENABLE_FIRECRAWL=true."""
+    settings = get_settings()
+    if not settings.enable_firecrawl:
+        return []
     from ..tools.firecrawl.client import search as firecrawl_search
 
     found: set[str] = set()
@@ -98,7 +243,13 @@ async def find_pdfs_for_expo(expo: Expo) -> list[str]:
     if not settings.pdf_discovery_enabled:
         return []
 
-    tasks: list = [_targeted_search_pdf(expo.name), _firecrawl_pdf_search(expo.name)]
+    tasks: list = [
+        _targeted_search_pdf(expo.name),
+        _crawl4ai_pdf_search(str(expo.aggregator_url) if expo.aggregator_url else None),
+        _crawl4ai_pdf_search(str(expo.official_url) if expo.official_url else None),
+    ]
+    if settings.enable_firecrawl:
+        tasks.append(_firecrawl_pdf_search(expo.name))
     if expo.aggregator_url:
         tasks.append(_scrape_pdf_links_from_page(str(expo.aggregator_url)))
     if expo.official_url:
@@ -110,8 +261,16 @@ async def find_pdfs_for_expo(expo: Expo) -> list[str]:
         if isinstance(r, list):
             found.update(r)
 
-    # Cap and stable sort
-    capped = sorted(found)[: settings.max_pdfs_per_expo]
+    relevant = _filter_relevant_pdfs(
+        list(found),
+        threshold=getattr(settings, "pdf_relevance_threshold", 0.5),
+    )
+    capped = relevant[: settings.max_pdfs_per_expo]
     if capped:
-        _log.info("pdf_finder.discovered", expo_id=expo.expo_id, count=len(capped))
+        _log.info(
+            "pdf_finder.discovered",
+            expo_id=expo.expo_id,
+            kept=len(capped),
+            dropped=len(found) - len(capped),
+        )
     return capped

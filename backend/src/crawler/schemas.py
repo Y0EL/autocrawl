@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal
@@ -165,12 +166,29 @@ class FundingInfo(BaseModel):
     investors: list[str] = Field(default_factory=list)
 
 
-class Vendor(BaseModel):
-    """Enriched vendor profile. Final output unit."""
+VendorStatus = Literal[
+    "enriched",
+    "unresolved",
+    "enrich_failed",
+    "scope_rejected",
+    "validation_rejected",
+]
 
-    domain: str
+
+class Vendor(BaseModel):
+    """Enriched vendor profile. Final output unit.
+
+    Stage 4 schema: `vendor_id` UUID is the primary key. `domain` and
+    `canonical_url` may be null when status != "enriched" (e.g. unresolved
+    refs that failed to find a domain still get persisted with their PDF
+    provenance for audit).
+    """
+
+    vendor_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: VendorStatus = "enriched"
+    domain: str | None = None
     company_name: str
-    canonical_url: AnyHttpUrl
+    canonical_url: AnyHttpUrl | None = None
     description: str | None = None
     tagline: str | None = None
     products: list[str] = Field(default_factory=list)
@@ -230,3 +248,7 @@ class RunSummary(BaseModel):
     failures: int = 0
     firecrawl_credits_used: int = 0
     openai_tokens_used: int = 0
+    exhibitors_resolve_failed: int = 0
+    exhibitors_enrich_failed: int = 0
+    exhibitors_validation_rejected: int = 0
+    exhibitors_scope_rejected: int = 0

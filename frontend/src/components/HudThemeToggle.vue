@@ -6,11 +6,11 @@ const { isDark, toggleDark } = useTheme()
 
 <template>
   <button
-    class="btn-ghost h-9 w-9 rounded-md p-0"
+    class="hud-btn-ghost h-8 w-8 p-0"
     :aria-label="isDark ? 'Aktifkan mode terang' : 'Aktifkan mode gelap'"
     @click="toggleDark()"
   >
-    <i v-if="isDark" class="fa-regular fa-sun text-base"></i>
-    <i v-else class="fa-regular fa-moon text-base"></i>
+    <FaIcon v-if="isDark" :icon="['far', 'sun']" class="text-xs" />
+    <FaIcon v-else :icon="['far', 'moon']" class="text-xs" />
   </button>
 </template>

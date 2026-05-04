@@ -6,66 +6,101 @@ interface NavItem {
   to: string
   label: string
   icon: string
+  code: string
 }
 
 const items: NavItem[] = [
-  { to: '/', label: 'Ringkasan', icon: 'fa-solid fa-gauge-high' },
-  { to: '/vendors', label: 'Vendor', icon: 'fa-solid fa-building' },
-  { to: '/expos', label: 'Expo', icon: 'fa-solid fa-flag-checkered' },
-  { to: '/pdfs', label: 'Brosur PDF', icon: 'fa-solid fa-file-pdf' },
-  { to: '/runs', label: 'Riwayat Run', icon: 'fa-solid fa-clock-rotate-left' },
+  { to: '/', label: 'Pusat Komando', icon: 'gauge-high', code: '01' },
+  { to: '/vendors', label: 'Vendor', icon: 'building', code: '02' },
+  { to: '/expos', label: 'Ekspo', icon: 'flag-checkered', code: '03' },
+  { to: '/pdfs', label: 'Brosur PDF', icon: 'file-pdf', code: '04' },
+  { to: '/runs', label: 'Riwayat Operasi', icon: 'clock-rotate-left', code: '05' },
+  { to: '/diagnostik', label: 'Diagnostik', icon: 'heart-pulse', code: '06' },
+  { to: '/orkestrator', label: 'Orkestrator', icon: 'circle-nodes', code: '07' },
+  { to: '/konfigurasi', label: 'Konfigurasi', icon: 'sliders', code: '08' },
 ]
 
-const collapsed = useStorage('autocrawl-sidebar-collapsed', false)
+const collapsed = useStorage('autocrawl-sidebar-collapsed', true)
 </script>
 
 <template>
   <aside
     :class="[
-      'flex h-full shrink-0 flex-col border-r border-zinc-200 bg-white transition-[width] duration-200 dark:border-zinc-800 dark:bg-zinc-950',
-      collapsed ? 'w-16' : 'w-56',
+      'relative z-10 flex h-full shrink-0 flex-col border-r border-base-200 bg-white transition-[width] duration-150 dark:border-base-700 dark:bg-base-900',
+      collapsed ? 'w-14' : 'w-56',
     ]"
   >
     <div
-      class="flex h-14 items-center gap-3 border-b border-zinc-200 px-3 dark:border-zinc-800"
-      :class="collapsed ? 'justify-center' : ''"
+      class="flex h-12 shrink-0 items-center border-b border-base-200 px-2 dark:border-base-700"
+      :class="collapsed ? 'justify-center' : 'gap-3 px-3'"
     >
       <div
-        class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent-500 to-accent-700 text-white shadow-sm"
+        class="flex h-8 w-8 shrink-0 items-center justify-center border border-accent-600 bg-accent-500 text-base-950"
       >
-        <i class="fa-solid fa-spider text-sm"></i>
+        <FaIcon :icon="['fas', 'crosshairs']" class="text-xs" />
       </div>
-      <div v-if="!collapsed" class="flex flex-col leading-tight">
-        <span class="text-sm font-bold tracking-tight">AUTOCRAWL</span>
-        <span class="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">CONSOLE v0.1</span>
+      <div v-if="!collapsed" class="flex min-w-0 flex-col leading-tight">
+        <span class="font-mono text-xs font-semibold uppercase tracking-ops text-base-800 dark:text-base-100">
+          AUTOCRAWL
+        </span>
+        <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
+          OPS CONSOLE v0.2
+        </span>
       </div>
     </div>
 
-    <nav class="flex flex-1 flex-col gap-0.5 p-2">
-      <RouterLink v-for="item in items" :key="item.to" :to="item.to" v-slot="{ isActive }">
-        <span
+    <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
+      <RouterLink
+        v-for="item in items"
+        :key="item.to"
+        :to="item.to"
+        custom
+        v-slot="{ isActive, navigate }"
+      >
+        <button
           :class="[
-            'group flex items-center gap-3 rounded-md text-sm font-medium transition-colors',
-            collapsed ? 'h-10 w-10 justify-center' : 'h-9 px-3',
+            'group relative flex w-full items-center font-mono text-2xs font-medium uppercase tracking-ops transition-colors',
+            collapsed ? 'h-10 justify-center' : 'h-10 gap-3 px-2',
             isActive
-              ? 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'
-              : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100',
+              ? 'bg-accent-500/10 text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
+              : 'text-base-500 hover:bg-base-100 hover:text-base-800 dark:text-base-400 dark:hover:bg-base-800 dark:hover:text-base-100',
           ]"
           :title="collapsed ? item.label : undefined"
+          @click="navigate"
         >
-          <i :class="[item.icon, 'w-4 text-center text-sm']"></i>
-          <span v-if="!collapsed">{{ item.label }}</span>
-        </span>
+          <span
+            v-if="isActive"
+            class="absolute left-0 top-0 h-full w-0.5 bg-accent-500"
+            aria-hidden="true"
+          />
+          <FaIcon :icon="['fas', item.icon]" class="text-sm" />
+          <span v-if="!collapsed" class="flex-1 truncate text-left">{{ item.label }}</span>
+          <span
+            v-if="!collapsed"
+            class="font-mono text-2xs text-base-400 dark:text-base-600"
+          >
+            {{ item.code }}
+          </span>
+        </button>
       </RouterLink>
     </nav>
 
     <button
-      class="m-2 flex h-9 items-center justify-center gap-2 rounded-md text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100"
-      :title="collapsed ? 'Expand' : 'Collapse'"
+      class="m-1.5 flex h-8 items-center justify-center border border-base-200 text-base-500 transition-colors hover:border-base-300 hover:bg-base-50 hover:text-base-800 dark:border-base-700 dark:text-base-400 dark:hover:border-base-600 dark:hover:bg-base-800 dark:hover:text-base-100"
+      :class="collapsed ? '' : 'gap-2 px-2'"
+      :title="collapsed ? 'Buka' : 'Tutup'"
       @click="collapsed = !collapsed"
     >
-      <i :class="collapsed ? 'fa-solid fa-angles-right' : 'fa-solid fa-angles-left'"></i>
-      <span v-if="!collapsed">Collapse</span>
+      <FaIcon
+        :icon="['fas', collapsed ? 'angles-right' : 'angles-left']"
+        class="text-2xs"
+      />
+      <span
+        v-if="!collapsed"
+        class="font-mono text-2xs uppercase tracking-ops"
+      >
+        Tutup
+      </span>
     </button>
   </aside>
 </template>

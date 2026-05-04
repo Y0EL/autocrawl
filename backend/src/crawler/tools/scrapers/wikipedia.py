@@ -177,8 +177,29 @@ def _classify_by_categories(cat_blob: str) -> str:
     return "other"
 
 
+def _title_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if "wikipedia.org" not in (parsed.netloc or "").lower():
+        return None
+    path = parsed.path or ""
+    if not path.startswith("/wiki/"):
+        return None
+    raw = path[6:].split("#", 1)[0].split("?", 1)[0]
+    return unquote(raw).replace("_", " ")
+
+
 async def list_exhibitors(expo_url: str, expo_id: str) -> list[ExhibitorRef]:
-    """Extract organizations / companies linked from a Wikipedia article."""
+    """Extract organizations / companies linked from a Wikipedia article.
+
+    Two parallel strategies merged:
+      1. Internal links (/wiki/...) classified by category heuristic — keeps
+         the existing high-recall path.
+      2. External links (extlinks API) — direct vendor websites cited by the
+         article. These bypass classification and become high-confidence
+         exhibitor candidates with their real URL preset (resolver-friendly).
+    """
+    from ..search import wikipedia as wiki_api
+
     await rl_acquire(expo_url)
     page = await fetch(expo_url, force_render=False)
     if not page.get("html"):
@@ -187,21 +208,29 @@ async def list_exhibitors(expo_url: str, expo_id: str) -> list[ExhibitorRef]:
 
     titles = _extract_wiki_titles(page["html"])
     _log.info("wikipedia.candidate_titles", expo_id=expo_id, count=len(titles))
-    if not titles:
-        return []
 
-    # Cap to a reasonable number to avoid API burst on huge articles.
+    article_title = _title_from_url(expo_url)
+
     titles = titles[:300]
-    classifications = await _classify_via_api(titles)
+    classifications = await _classify_via_api(titles) if titles else {}
+
+    extlinks_urls: list[str] = []
+    if article_title:
+        try:
+            extlinks_urls = await wiki_api.extlinks(article_title, limit=100)
+        except Exception as e:  # noqa: BLE001
+            _log.debug("wikipedia.extlinks_failed", title=article_title, error=str(e))
 
     refs: list[ExhibitorRef] = []
-    seen: set[str] = set()
+    seen_names: set[str] = set()
+    seen_urls: set[str] = set()
+
     for title, kind in classifications.items():
         if kind not in {"company", "organisation"}:
             continue
-        if title in seen:
+        if title in seen_names:
             continue
-        seen.add(title)
+        seen_names.add(title)
         wiki_url = urljoin("https://en.wikipedia.org/wiki/", title.replace(" ", "_"))
         try:
             refs.append(
@@ -223,10 +252,39 @@ async def list_exhibitors(expo_url: str, expo_id: str) -> list[ExhibitorRef]:
         except Exception as e:  # noqa: BLE001
             _log.debug("wikipedia.invalid_ref", title=title, error=str(e))
 
+    for url in extlinks_urls:
+        host = (urlparse(url).netloc or "").lower()
+        if not host or "wikipedia.org" in host or "wikimedia.org" in host:
+            continue
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        name = host.split(":")[0]
+        try:
+            refs.append(
+                ExhibitorRef(
+                    expo_id=expo_id,
+                    name=name[:200],
+                    raw_url=url,
+                    aggregator_domain=AGGREGATOR_DOMAIN,
+                    provenance=[
+                        SourceProvenance(
+                            type="aggregator",
+                            url=expo_url,
+                            extraction_method="wikipedia_extlinks",
+                            confidence=0.90,
+                        )
+                    ],
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.debug("wikipedia.extlink_invalid_ref", url=url, error=str(e))
+
     _log.info(
         "wikipedia.exhibitors_extracted",
         expo_id=expo_id,
         candidates=len(titles),
+        extlinks=len(extlinks_urls),
         kept=len(refs),
     )
     return refs

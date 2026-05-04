@@ -1,11 +1,12 @@
 """Validator — sanity-check enriched Vendor before persisting.
 
-Returns (is_valid, completeness_score, issues). Vendors with completeness < 0.2
-are dropped (not persisted) but still logged.
+Returns (is_valid, completeness_score, issues). Threshold is configurable
+via VENDOR_COMPLETENESS_THRESHOLD (default 0.10).
 """
 
 from __future__ import annotations
 
+from ..config import get_settings
 from ..observability.logger import get_logger
 from ..schemas import Vendor
 
@@ -51,12 +52,19 @@ def validate(vendor: Vendor) -> tuple[bool, float, list[str]]:
     issues: list[str] = []
     if not vendor.domain:
         issues.append("missing_domain")
-    if "." not in (vendor.domain or ""):
+    if vendor.domain and "." not in vendor.domain:
         issues.append("invalid_domain")
     if not vendor.company_name:
         issues.append("missing_company_name")
     completeness = _score(vendor)
-    is_valid = not issues and completeness >= 0.20
+    threshold = get_settings().vendor_completeness_threshold
+    is_valid = not issues and completeness >= threshold
     if not is_valid:
-        _log.info("validator.rejected", domain=vendor.domain, issues=issues, completeness=completeness)
+        _log.info(
+            "validator.rejected",
+            domain=vendor.domain,
+            issues=issues,
+            completeness=completeness,
+            threshold=threshold,
+        )
     return is_valid, completeness, issues

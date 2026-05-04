@@ -114,8 +114,22 @@ class Settings(BaseSettings):
     global_request_timeout_seconds: int = Field(default=60, alias="GLOBAL_REQUEST_TIMEOUT_SECONDS")
     firecrawl_credit_threshold_pct: float = Field(default=10.0, alias="FIRECRAWL_CREDIT_THRESHOLD_PCT")
 
+    # === Scraper backend toggles ===
+    enable_firecrawl: bool = Field(default=False, alias="ENABLE_FIRECRAWL")
+    enable_crawl4ai: bool = Field(default=True, alias="ENABLE_CRAWL4AI")
+    crawl4ai_browser: str = Field(default="chromium", alias="CRAWL4AI_BROWSER")
+    crawl4ai_recycle_after: int = Field(default=100, alias="CRAWL4AI_RECYCLE_AFTER")
+    crawl4ai_max_concurrent: int = Field(default=4, alias="CRAWL4AI_MAX_CONCURRENT")
+    crawl4ai_extraction_model: str = Field(default="gpt-4o-mini", alias="CRAWL4AI_EXTRACTION_MODEL")
+
     # === Phase gating ===
     phase_2_vendor_threshold: int = Field(default=100, alias="PHASE_2_VENDOR_THRESHOLD")
+
+    # === Vendor pipeline tuning (Stage 4 + 5) ===
+    vendor_completeness_threshold: float = Field(default=0.10, alias="VENDOR_COMPLETENESS_THRESHOLD")
+    keep_out_of_scope: bool = Field(default=True, alias="KEEP_OUT_OF_SCOPE")
+    persist_unresolved: bool = Field(default=True, alias="PERSIST_UNRESOLVED")
+    pdf_relevance_threshold: float = Field(default=0.5, alias="PDF_RELEVANCE_THRESHOLD")
 
     # === Database ===
     database_url: str = Field(
@@ -191,12 +205,26 @@ def get_settings() -> Settings:
     return Settings()
 
 
-@lru_cache(maxsize=1)
 def get_aggregator_blacklist() -> frozenset[str]:
-    s = get_settings()
-    return frozenset(load_aggregator_blacklist(s.config_dir))
+    """Effective blacklist (YAML defaults ∪ user-overlay − disabled).
+
+    Backed by tools.scope_cache, kept fresh in realtime via Redis version
+    counter. Falls back to YAML-only on bootstrap before the cache loads.
+    """
+    from .tools.scope_cache import get_effective_blacklist
+
+    effective = get_effective_blacklist()
+    if effective:
+        return effective
+    # bootstrap fallback — first sync call before async loop has populated cache
+    return frozenset(load_aggregator_blacklist(get_settings().config_dir))
 
 
-@lru_cache(maxsize=1)
 def get_seed_topics() -> dict:
+    """Effective seed topics + anchor expos (merged YAML + DB overlay)."""
+    from .tools.scope_cache import get_effective_seed_topics
+
+    merged = get_effective_seed_topics()
+    if merged.get("topics") or merged.get("anchor_expos"):
+        return merged
     return load_seed_topics(get_settings().config_dir)

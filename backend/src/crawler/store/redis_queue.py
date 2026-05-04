@@ -102,3 +102,48 @@ async def queue_depth(stream: str) -> int:
         return int(await client.xlen(stream))
     except Exception:  # noqa: BLE001
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Scope-rule version counter — drives realtime cache invalidation
+# ---------------------------------------------------------------------------
+#
+# Every write to scope_rules / app_prompts MUST call bump_scope_version().
+# Every reader checks read_scope_version() before serving a cached value;
+# if the version moved, the reader refreshes from DB+YAML.
+#
+# Redis offline → bump is a no-op; readers fall back to "always refresh"
+# (slower but correct, never stale).
+
+_SCOPE_VERSION_KEY = "autocrawl:scope:version"
+
+
+async def bump_scope_version() -> int | None:
+    """Atomic INCR on the scope version counter. Call after any rule mutation.
+
+    Returns the new version, or None if Redis is unavailable.
+    """
+    client = await get_redis()
+    if client is None:
+        return None
+    try:
+        return int(await client.incr(_SCOPE_VERSION_KEY))
+    except Exception as e:  # noqa: BLE001
+        _log.warning("redis.scope_version_bump_failed", error=str(e))
+        return None
+
+
+async def read_scope_version() -> int | None:
+    """Returns the current scope version, or None if Redis is unavailable.
+
+    None means callers should refresh unconditionally (no cache).
+    """
+    client = await get_redis()
+    if client is None:
+        return None
+    try:
+        v = await client.get(_SCOPE_VERSION_KEY)
+        return int(v) if v is not None else 0
+    except Exception as e:  # noqa: BLE001
+        _log.warning("redis.scope_version_read_failed", error=str(e))
+        return None

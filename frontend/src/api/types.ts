@@ -48,10 +48,19 @@ export interface FundingInfo {
   investors?: string[]
 }
 
+export type VendorStatus =
+  | 'enriched'
+  | 'unresolved'
+  | 'enrich_failed'
+  | 'scope_rejected'
+  | 'validation_rejected'
+
 export interface Vendor {
-  domain: string
+  vendor_id: string
+  status: VendorStatus
+  domain: string | null
   company_name: string
-  canonical_url: string
+  canonical_url: string | null
   description?: string | null
   tagline?: string | null
   products: string[]
@@ -123,6 +132,37 @@ export interface RunSummary {
   vendors_enriched: number
   vendors_dedup_skipped: number
   failures: number
+  firecrawl_credits_used?: number
+  openai_tokens_used?: number
+  notes?: string | null
+  exhibitors_resolve_failed?: number
+  exhibitors_enrich_failed?: number
+  exhibitors_validation_rejected?: number
+  exhibitors_scope_rejected?: number
+}
+
+export interface ExhibitorRefRow {
+  ref_id: string
+  expo_id: string | null
+  name: string
+  raw_url: string | null
+  short_description: string | null
+  booth: string | null
+  status: string
+  failure_category: string | null
+  failure_reason: string | null
+  resolved_domain: string | null
+  resolve_attempts: number
+  last_attempted_at: string | null
+  run_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RefsStats {
+  total: number
+  by_status: Record<string, number>
+  by_failure_category: Record<string, number>
 }
 
 export interface OverviewResponse {
@@ -165,4 +205,173 @@ export interface TimelinePoint {
 export interface RunModeStat {
   mode: string
   count: number
+}
+
+export interface HealthResponse {
+  status: 'ok' | 'degraded'
+  db: 'ok' | 'down'
+  version: string
+  uptime_seconds?: number
+  error?: string
+}
+
+export interface SettingsResponse {
+  llm_provider: string
+  llm_base_url: string | null
+  openai_model_heavy: string
+  openai_model_light: string
+  translation_enabled: boolean
+  translation_provider: string
+  target_language: string
+  phase_2_vendor_threshold: number
+  max_vendors_per_run: number
+  max_expos_per_run: number
+  run_interval_minutes: number
+  pdf_discovery_enabled: boolean
+  ocr_enabled: boolean
+  mode: string
+  log_level: string
+}
+
+export interface OrchestratorNode {
+  id: string
+  label: string
+  code: string
+  description: string
+  x: number
+  y: number
+  active: number
+  started: number
+  completed: number
+  failed: number
+  last_event_at: number | null
+}
+
+export interface OrchestratorEdge {
+  id: string
+  source: string
+  target: string
+}
+
+export interface OrchestratorState {
+  nodes: OrchestratorNode[]
+  edges: OrchestratorEdge[]
+  last_event_id: string
+  events_observed: number
+}
+
+export interface CrawlEvent {
+  id: string
+  ts: number
+  node: string
+  event: 'started' | 'completed' | 'failed' | string
+  run_id: string
+  payload: Record<string, unknown>
+}
+
+export interface OrchestratorEventsResponse {
+  events: CrawlEvent[]
+  next_since: string
+}
+
+export interface OrchestratorActiveRun {
+  started_at: string
+  mode: string
+  status: string
+  duration_seconds?: number
+}
+
+export interface OrchestratorStageState {
+  node: string
+  code: string
+  label: string
+  active: number
+  completed_today: number
+  failed_today: number
+  in_flight_label: string | null
+  last_event_at: number | null
+}
+
+export interface OrchestratorCurrent {
+  active_run: OrchestratorActiveRun | null
+  stages: OrchestratorStageState[]
+}
+
+export interface OrchestratorThroughput {
+  window_seconds: number
+  events_total: number
+  events_per_minute: number
+  vendors_per_minute: number
+  errors_per_minute: number
+  active_workers_total: number
+  by_node: Record<string, number>
+}
+
+export interface ErrorGroupSample {
+  ref_id: string
+  name: string
+  expo_id: string | null
+  failure_reason: string
+  resolve_attempts: number
+}
+
+export interface ErrorGroup {
+  category: string
+  title: string
+  count: number
+  cause: string
+  remedy: string
+  samples: ErrorGroupSample[]
+}
+
+export interface ErrorSummaryResponse {
+  groups: ErrorGroup[]
+  total: number
+}
+
+export type ScopeRuleKind =
+  | 'blacklist_domain'
+  | 'whitelist_domain'
+  | 'scope_keyword_include'
+  | 'scope_keyword_exclude'
+  | 'seed_topic'
+  | 'anchor_expo'
+
+export type ScopeRuleSource = 'yaml_default' | 'user' | 'ai_suggested'
+
+export interface ScopeRule {
+  id: string
+  kind: ScopeRuleKind
+  value: string
+  source: ScopeRuleSource
+  enabled: boolean
+  notes: string | null
+  extra: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface ScopeRulesResponse {
+  items: ScopeRule[]
+  total: number
+  valid_kinds: ScopeRuleKind[]
+}
+
+export interface ScopePromptResponse {
+  key: string
+  content: string
+  is_custom: boolean
+  updated_at: string | null
+}
+
+export interface ScopeSuggestion {
+  value: string
+  reason: string
+  confidence: number
+}
+
+export interface ScopeSuggestResponse {
+  kind: ScopeRuleKind
+  hint: string
+  suggestions: ScopeSuggestion[]
 }

@@ -10,9 +10,12 @@ import {
   ScatterChart,
 } from 'echarts/charts'
 import {
+  DataZoomComponent,
   DatasetComponent,
+  GraphicComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TitleComponent,
   TooltipComponent,
 } from 'echarts/components'
@@ -33,6 +36,9 @@ use([
   TitleComponent,
   LegendComponent,
   DatasetComponent,
+  DataZoomComponent,
+  GraphicComponent,
+  MarkLineComponent,
 ])
 
 const { isDark } = useTheme()
@@ -53,10 +59,13 @@ defineProps<{
       :loading="loading"
       autoresize
       :loading-options="{
-        text: 'Memuat',
-        color: '#6366f1',
-        textColor: isDark ? '#e4e4e7' : '#27272a',
-        maskColor: isDark ? 'rgba(9, 9, 11, 0.6)' : 'rgba(255, 255, 255, 0.6)',
+        text: 'MEMUAT',
+        color: '#FFB800',
+        textColor: isDark ? '#E5EAF1' : '#2A3340',
+        maskColor: isDark ? 'rgba(7, 9, 12, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: 11,
+        fontWeight: 500,
       }"
     />
   </div>

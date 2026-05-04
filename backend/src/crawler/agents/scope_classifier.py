@@ -17,6 +17,7 @@ from ..observability.logger import get_logger
 from ..observability.metrics import errors_total
 from ..schemas import Vendor
 from ..tools.llm.openai_client import chat
+from ..tools.scope_cache import get_effective_scope_prompt_async
 
 _log = get_logger(__name__)
 
@@ -28,32 +29,15 @@ class _ScopeJudgment(BaseModel):
     reason: str = Field(default="")
 
 
-_SYSTEM = SystemMessage(
-    content=(
-        "You judge whether a company belongs to the security / defense / "
-        "cybersecurity / law-enforcement / surveillance / border-control / "
-        "critical-infrastructure-protection industry. These are the only "
-        "industries IN scope.\n\n"
-        "REJECT (out of scope):\n"
-        "- Hotels, hospitality, hotel chains, vacation rentals\n"
-        "- News organizations, magazines, blogs, editorial publishers\n"
-        "- Universities, academic institutions, research conferences\n"
-        "- Generic event platforms, ticketing, conference hosts\n"
-        "- General consulting firms (unless they specifically serve "
-        "  defense/security clients as primary segment)\n"
-        "- Banks, real estate, retail, marketing agencies\n\n"
-        "ACCEPT (in scope):\n"
-        "- Defense manufacturers, military equipment, weapons systems\n"
-        "- Cybersecurity software / services / appliances\n"
-        "- Police / law enforcement / tactical gear\n"
-        "- Surveillance, ISR, drones, biometrics\n"
-        "- Border control, customs, immigration tech\n"
-        "- Critical-infrastructure security (SCADA, power grid, oil/gas)\n"
-        "- Dual-use companies whose security/defense vertical is meaningful\n\n"
-        "Be strict. When evidence is weak or the vendor looks like a "
-        "tangential venue/sponsor, set is_in_scope=false."
-    )
-)
+async def _system_message() -> SystemMessage:
+    """Pull the latest editable system prompt from scope_cache.
+
+    Realtime: any edit via `PUT /api/config/scope/prompt` propagates here on
+    the next call (background poller refreshes within POLL_SECONDS, write
+    handler force-refreshes immediately).
+    """
+    content = await get_effective_scope_prompt_async()
+    return SystemMessage(content=content)
 
 
 async def classify_vendor(vendor: Vendor) -> _ScopeJudgment:
@@ -68,7 +52,8 @@ async def classify_vendor(vendor: Vendor) -> _ScopeJudgment:
     )
     user = HumanMessage(content=profile)
     try:
-        result = await chat([_SYSTEM, user], use_heavy=False, response_format=_ScopeJudgment)
+        system = await _system_message()
+        result = await chat([system, user], use_heavy=False, response_format=_ScopeJudgment)
         return result if isinstance(result, _ScopeJudgment) else _ScopeJudgment()
     except Exception as e:  # noqa: BLE001
         errors_total.labels(stage="scope", category="llm_judgment").inc()

@@ -13,6 +13,7 @@ Same Protocol as `tentimes.py` and `generic.py` — returns `list[ExhibitorRef]`
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -150,6 +151,14 @@ async def list_exhibitors(pdf_url: str, expo_id: str) -> list[ExhibitorRef]:
     pages = await extract_pages(pdf_path)
     if not pages:
         _log.info("pdf_extractor.no_pages", pdf=pdf_path.name, expo_id=expo_id)
+        await _persist_pdf_row(
+            pdf_url=pdf_url,
+            pdf_path=pdf_path,
+            expo_id=expo_id,
+            sha256=sha256,
+            page_count=0,
+            vendors_found=0,
+        )
         return []
     pdf_extracted_total.inc()
     for page in pages:
@@ -206,4 +215,105 @@ async def list_exhibitors(pdf_url: str, expo_id: str) -> list[ExhibitorRef]:
         pages=len(pages),
         vendors=len(refs),
     )
+    await _persist_pdf_row(
+        pdf_url=pdf_url,
+        pdf_path=pdf_path,
+        expo_id=expo_id,
+        sha256=sha256,
+        page_count=len(pages),
+        vendors_found=len(refs),
+    )
     return refs
+
+
+async def _persist_pdf_row(
+    *,
+    pdf_url: str,
+    pdf_path: Path,
+    expo_id: str,
+    sha256: str,
+    page_count: int,
+    vendors_found: int,
+) -> None:
+    """Idempotent upsert of PDF metadata into Postgres pdfs table.
+
+    Errors here must NOT break the extraction flow, so we swallow exceptions
+    after logging. The on-disk audit trail remains the source-of-truth backup.
+    """
+    from datetime import datetime, timezone
+    from json import loads
+
+    from ...db.engine import get_sessionmaker
+    from ...db.repositories import pdf_repo
+
+    sidecar = Path(str(pdf_path) + ".meta.json")
+    size_bytes = 0
+    downloaded_at = datetime.now(timezone.utc)
+    try:
+        if sidecar.exists():
+            meta = loads(sidecar.read_text(encoding="utf-8"))
+            size_bytes = int(meta.get("size_bytes") or 0)
+            ts = meta.get("downloaded_at")
+            if ts:
+                downloaded_at = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception as e:  # noqa: BLE001
+        _log.debug("pdf_extractor.sidecar_read_failed", error=str(e))
+
+    if size_bytes == 0:
+        try:
+            size_bytes = pdf_path.stat().st_size
+        except Exception:  # noqa: BLE001
+            pass
+
+    sessionmaker = get_sessionmaker()
+    effective_expo_id: str | None = expo_id
+
+    try:
+        from sqlalchemy import select
+
+        from ...db.models import ExpoORM
+
+        async with sessionmaker() as scout:
+            exists = (
+                await scout.execute(select(ExpoORM.expo_id).where(ExpoORM.expo_id == expo_id))
+            ).scalar_one_or_none()
+            if exists is None:
+                effective_expo_id = None
+                _log.debug(
+                    "pdf_extractor.expo_not_yet_persisted",
+                    pdf=pdf_path.name,
+                    expo_id=expo_id,
+                )
+    except Exception as e:  # noqa: BLE001
+        _log.debug("pdf_extractor.expo_check_failed", error=str(e))
+
+    try:
+        async with sessionmaker() as session:
+            try:
+                await pdf_repo.upsert(
+                    session,
+                    filename=pdf_path.name,
+                    source_url=pdf_url,
+                    expo_id=effective_expo_id,
+                    sha256=sha256,
+                    size_bytes=size_bytes,
+                    page_count=page_count,
+                    vendors_found=vendors_found,
+                    downloaded_at=downloaded_at,
+                    meta={
+                        "audit_path": str(pdf_path.parent / "_index.json"),
+                        "intended_expo_id": expo_id,
+                    },
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+    except Exception as e:  # noqa: BLE001
+        errors_total.labels(stage="pdf_extractor", category="db_persist").inc()
+        _log.warning(
+            "pdf_extractor.db_persist_failed",
+            pdf=pdf_path.name,
+            expo_id=expo_id,
+            error=str(e)[:200],
+        )

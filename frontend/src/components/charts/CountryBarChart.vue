@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import BaseChart from './BaseChart.vue'
+import { tactical, tooltipDefaults, axisDefaults } from './chart-theme'
 import { useTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -13,31 +14,29 @@ const { isDark } = useTheme()
 const option = computed(() => {
   const sorted = [...props.data].sort((a, b) => a.count - b.count)
   return {
-    backgroundColor: 'transparent',
-    textStyle: { color: isDark.value ? '#e4e4e7' : '#27272a' },
-    grid: { left: 80, right: 30, top: 20, bottom: 20 },
+    backgroundColor: tactical.bg,
+    grid: { left: 8, right: 32, top: 8, bottom: 16, containLabel: true },
     tooltip: {
+      ...tooltipDefaults(isDark.value),
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
     },
     xAxis: {
       type: 'value',
-      axisLine: { lineStyle: { color: isDark.value ? '#3f3f46' : '#d4d4d8' } },
-      splitLine: { lineStyle: { color: isDark.value ? '#27272a' : '#f4f4f5' } },
-      axisLabel: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+      ...axisDefaults(isDark.value),
+      splitNumber: 4,
     },
     yAxis: {
       type: 'category',
-      data: sorted.map((d) => d.country),
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { color: isDark.value ? '#a1a1aa' : '#52525b' },
+      data: sorted.map((d) => d.country.toUpperCase()),
+      ...axisDefaults(isDark.value),
+      splitLine: { show: false },
     },
     series: [
       {
         type: 'bar',
         data: sorted.map((d) => d.count),
-        barWidth: '60%',
+        barWidth: 14,
         itemStyle: {
           color: {
             type: 'linear',
@@ -46,11 +45,17 @@ const option = computed(() => {
             x2: 1,
             y2: 0,
             colorStops: [
-              { offset: 0, color: '#6366f1' },
-              { offset: 1, color: '#818cf8' },
+              { offset: 0, color: '#06B6D4' },
+              { offset: 1, color: '#FFB800' },
             ],
           },
-          borderRadius: [0, 4, 4, 0],
+        },
+        label: {
+          show: true,
+          position: 'right',
+          color: isDark.value ? tactical.text.primary.dark : tactical.text.primary.light,
+          fontSize: 10,
+          fontFamily: 'IBM Plex Mono, monospace',
         },
       },
     ],

@@ -4,7 +4,7 @@ Crawler otonom yang jalan 24 jam non stop. Fungsinya menemukan expo bidang secur
 
 > **Baru pertama kali pakai?** Lihat [TUTORIAL.md](TUTORIAL.md) untuk panduan langkah demi langkah dari nol (15 section, lengkap dengan troubleshooting).
 
-Stack inti backend: LangGraph, LangChain, Playwright, Surya OCR, Firecrawl, OpenAI atau Ollama, FastAPI, SQLAlchemy async, Postgres. Stack frontend: Vue 3, TypeScript, Tailwind CSS, Apache ECharts, TanStack Query, Pinia, FontAwesome 6. Semua self host, dijalankan via Docker Compose.
+Stack inti backend: LangGraph, LangChain, Playwright, **Crawl4AI** (Apache-2.0 OSS, ganti Firecrawl), Surya OCR, OpenAI atau Ollama, FastAPI, SQLAlchemy async, Postgres, Redis Streams. Stack frontend: Vue 3, TypeScript, Tailwind CSS, Apache ECharts, **Vue Flow** (canvas LangGraph viz), TanStack Query, Pinia, FontAwesome 6. Semua self host, dijalankan via Docker Compose.
 
 ## Struktur Repo
 
@@ -13,20 +13,31 @@ crawl/
   backend/    Python service (LangGraph crawler, FastAPI, OCR, scraper, enrichment)
     src/crawler/
       agents/        discovery, extractor, resolver, name_resolver, enricher, reporter
-      api/           FastAPI app, routes, dependency
-      db/            SQLAlchemy models, engine, repositories
-      tools/         scrapers, parsers, browsers, search, enrichment, llm
+      api/           FastAPI app, routes (incl orchestrator + settings + health expanded)
+      db/            SQLAlchemy models, engine (with idempotent column patches), repositories
+      orchestrator/  events.py emitter to Redis Streams `autocrawl:events`
+      tools/
+        scrapers/    10times, wikipedia, generic, pdf_extractor
+        crawl4ai_client/  Crawl4AIClient singleton (scrape, extract, find_pdfs, scrape_many)
+        firecrawl/   Legacy Firecrawl client (off by default, ENABLE_FIRECRAWL flag)
+        search/      wikipedia (full WikiClient REST direct), ddg, baidu, naver, multi
+        browsers/    httpx, Playwright pool, Crawl4AI ladder, FlareSolverr
+        parsers/     html_parser, pdf_parser (PyMuPDF + pdfplumber + Surya)
+        llm/         openai_client, translator (NLLB-200 int8)
+        proxies/     rate_limit, flaresolverr
       store/         json_reporter, db_reporter, pdf_store, vector_store
-      observability/ structlog logger, prometheus metrics, langfuse tracer
-    tests/unit/      152 unit test
-  frontend/   Vue 3 admin console (TypeScript, Tailwind, ECharts, FontAwesome)
+      observability/ structlog, prometheus metrics (incl crawl4ai_*), langfuse tracer
+    tests/unit/      unit test
+  frontend/   Vue 3 admin console (TypeScript, Tailwind, ECharts, Vue Flow, FontAwesome)
     src/
-      api/           axios client, TypeScript types
-      components/    StatCard, DataTable, ProvenanceTimeline, charts/
-      composables/   useTheme, useApiHealth, useCsvExport
-      views/         OverviewPage, VendorsListPage, VendorDetailPage, ExposListPage, ExpoDetailPage, PdfsListPage, RunsListPage
+      api/           axios client, TypeScript types (incl OrchestratorState/CrawlEvent)
+      components/    HudPanel, HudKpiTile, HudFlowNode, HudHeartbeat, HudUptime,
+                     HudStatusPill, HudDataTable, HudActivityFeed, charts/
+      composables/   useTheme, useApiHealth, useUptime, useCsvExport
+      views/         OverviewPage (Pusat Komando), VendorsListPage, VendorDetailPage,
+                     ExposListPage, ExpoDetailPage, PdfsListPage, RunsListPage,
+                     DiagnosticsPage, OrchestratorBoardPage
       mocks/         MSW handlers (opsional, fallback dev tanpa backend)
-    tests/          26 vitest test
   config/     YAML konfigurasi yang di share ke backend
   data/       Output JSON, PDF brosur, Chroma vector (gitignored)
   logs/       Log harian terstruktur (gitignored)
@@ -45,8 +56,10 @@ Lalu isi `.env`. Minimum yang perlu diisi:
 
 ```
 OPENAI_API_KEY=sk_xxx          # boleh kosong kalau pakai Ollama
-FIRECRAWL_API_KEY=fc_xxx       # boleh kosong, fitur firecrawl auto skip
+FIRECRAWL_API_KEY=                # boleh kosong, default ENABLE_FIRECRAWL=false
 ```
+
+Crawl4AI dipakai sebagai default scraper (Apache-2.0 OSS, gratis, BYOK OpenAI). Firecrawl legacy tetep ada di codebase tapi off by default. Lihat section `Crawl4AI Integration` dan `.env.example` untuk semua flag.
 
 Build dan jalankan:
 
@@ -112,7 +125,7 @@ Endpoint `/api/*` yang melayani frontend. Baca dari Postgres. CORS enabled untuk
 Source of truth untuk vendor, expo, run, PDF metadata. Schema otomatis dibuat saat API container start. Data lama JSON bisa diimpor lewat `crawl db import-json`.
 
 **Frontend dashboard**
-Admin console berbasis Vue 3 plus Apache ECharts. Tujuh halaman, light dan dark mode otomatis. Filter, search, CSV export. Hit API real time. Status indicator backend di topbar (refresh tiap 30 detik).
+Admin console tactical / military-grade berbasis Vue 3 plus Apache ECharts plus Vue Flow. Sembilan halaman (Pusat Komando, Vendor list + detail, Ekspo list + detail, Brosur PDF, Riwayat Operasi, Diagnostik, Orkestrator), IBM Plex Sans + Mono fonts, palette amber HUD, sidebar icon-only collapsible. Light dan dark mode toggle. Filter, search, CSV export. Hit API real time dengan TanStack Query. Heartbeat strip di topbar (API/DB), uptime live counter, ENGAGE button trigger run dengan dropdown mode (dev/normal/agresif).
 
 **Grafana**
 Dashboard visual real time. Lihat berapa vendor sudah dikoleksi, error rate per stage, OpenAI token usage, Firecrawl credit usage, latency request per tool, dan progress menuju target Phase 2 (100 vendor). Cocok buat presentasi ke management.
@@ -168,7 +181,8 @@ Container `autocrawl-api` jalan di port 8081, baca dari Postgres. Endpoint utama
 
 | Method | Path | Deskripsi |
 |---|---|---|
-| GET | `/api/health` | Status API plus DB ping |
+| GET | `/api/health` | Status per komponen: db, redis, chroma, llm, disk, plus uptime_seconds |
+| GET | `/api/settings` | Konfigurasi runtime read-only (LLM provider, translation, mode, dll) |
 | GET | `/api/overview` | Counter total, latest run, industry breakdown |
 | GET | `/api/vendors` | Daftar vendor paginated, filter industry, country, search |
 | GET | `/api/vendors/{domain}` | Profil vendor lengkap |
@@ -176,11 +190,15 @@ Container `autocrawl-api` jalan di port 8081, baca dari Postgres. Endpoint utama
 | GET | `/api/expos/{expo_id}` | Detail expo plus vendor_domains |
 | GET | `/api/pdfs` | Daftar PDF brosur |
 | GET | `/api/runs` | Riwayat run |
+| GET | `/api/runs/active` | Status run yang lagi jalan (lewat Redis SETNX lock) |
+| POST | `/api/runs/trigger` | Luncurkan run baru, body `{mode: dev|normal|aggressive}` |
 | GET | `/api/stats/industries` | Untuk pie chart industri |
 | GET | `/api/stats/countries` | Untuk bar chart top negara |
 | GET | `/api/stats/source-types` | PDF vs aggregator vs search |
 | GET | `/api/stats/timeline` | Akumulasi vendor per hari |
 | GET | `/api/stats/runs-mode` | Distribusi mode run |
+| GET | `/api/orchestrator/state` | Snapshot graph nodes + per-node counters (active, completed, failed) |
+| GET | `/api/orchestrator/events` | Tail event stream `autocrawl:events` (long-poll friendly) |
 
 OpenAPI Swagger UI: http://localhost:8081/api/docs
 
@@ -190,14 +208,14 @@ Vue 3 plus TypeScript plus Tailwind plus ECharts plus TanStack Query plus Pinia 
 
 ### Charts industrial (Apache ECharts)
 
-* **IndustryPieChart**. Distribusi vendor per industri tag.
+* **IndustryBarChart**. Horizontal bar top 12 + Lainnya bucket. Toggle "Top 12" vs "Semua" dengan dataZoom virtual scroll. Replace pie chart yang overflow waktu kategori >30.
 * **CountryBarChart**. Top 10 negara berdasarkan registrar domain vendor.
-* **SourceTypePieChart**. Donut PDF vs aggregator vs search.
+* **SourceTypePieChart**. Donut PDF vs aggregator vs search vs manual (4 kategori, pas untuk pie).
 * **VendorTimelineChart**. Combo bar plus line area, akumulasi vendor 30 hari.
-* **Phase2GaugeChart**. Gauge progress menuju target 100 vendor.
+* **Phase2GaugeChart**. Gauge tactical (amber needle) progress menuju target 100 vendor.
 * **RunsModeBarChart**. Distribusi run mode dev, normal, aggressive.
 
-Semua chart auto swap palette saat user toggle dark mode.
+Semua chart auto swap palette saat user toggle dark mode. Theme tactical: IBM Plex Mono labels, amber accent, sharp corners, low-saturation borders.
 
 ### Filter, Search, Export
 
@@ -242,6 +260,7 @@ docker compose exec crawler crawl health                 # cek koneksi ke semua 
 docker compose exec crawler crawl pdf-test <url>         # uji ekstraksi satu PDF
 docker compose exec api crawl wiki-test <url>            # uji scraper Wikipedia
 docker compose exec api crawl translate-vendors          # backfill translasi vendor lama
+docker compose exec api crawl backfill-pdfs              # walk data/pdfs/ dan insert ke DB
 
 docker compose exec api crawl db migrate                 # buat tabel Postgres
 docker compose exec api crawl db import-json             # impor JSON lama ke DB
@@ -291,6 +310,91 @@ Catatan tuning Ollama supaya tidak timeout saat banyak request bareng:
 ```
 
 Lalu restart layanan Ollama.
+
+## Crawl4AI Integration
+
+Crawl4AI by [unclecode](https://github.com/unclecode/crawl4ai) adalah scraper Apache-2.0 OSS berbasis Playwright. Mengganti Firecrawl yang berbayar. Tiga peran:
+
+1. **Scrape URL → markdown clean** (`c4ai_scrape`). Pakai `result.markdown.raw_markdown` bawaan, tanpa LLM cost.
+2. **Structured extract dengan Pydantic schema** (`c4ai_extract`). Pakai `LLMExtractionStrategy` BYOK OpenAI — lo bayar token aja.
+3. **Find PDF links di sebuah page** (`c4ai_find_pdfs`). Filter `result.links` untuk href `.pdf`.
+
+Singleton client di `tools/crawl4ai_client/client.py` reuse satu `AsyncWebCrawler` antar request supaya gak kena cold-start Chromium tiap call (~3 detik saving). Browser auto-recycle setelah `CRAWL4AI_RECYCLE_AFTER` page (default 500) untuk hindari memory leak Chromium long-lived.
+
+Dua mode browser:
+* `chromium` — fast path default
+* `undetected` — anti-bot via undetected-chromedriver Playwright fork. Dipanggil otomatis dari ladder fetcher kalau scrape biasa kena Cloudflare wall
+
+Ladder fetcher lengkap (`tools/browsers/fetcher.py`):
+1. httpx (cepat, static page)
+2. Playwright pool internal (JS render)
+3. Crawl4AI chromium (clean markdown + JS)
+4. Crawl4AI undetected + stealth (anti-bot)
+5. FlareSolverr (Cloudflare bypass via service)
+6. Firecrawl `/scrape` (cuma kalau `ENABLE_FIRECRAWL=true` AND budget OK)
+
+Env vars di `.env`:
+
+```
+ENABLE_FIRECRAWL=false                    # legacy Firecrawl, off by default
+ENABLE_CRAWL4AI=true                      # primary scraper
+CRAWL4AI_BROWSER=chromium                 # chromium | undetected
+CRAWL4AI_RECYCLE_AFTER=500                # restart browser tiap N page
+CRAWL4AI_MAX_CONCURRENT=8                 # batch concurrency cap
+CRAWL4AI_EXTRACTION_MODEL=gpt-4o-mini     # model untuk LLMExtractionStrategy
+```
+
+Metric Prometheus relevant:
+* `crawl_crawl4ai_requests_total{operation,status}` — counter per operasi (scrape/extract/find_pdfs/scrape_stealth)
+* `crawl_crawl4ai_browser_recycles_total{mode}` — counter restart browser per mode
+* `crawl_external_search_total{provider,status}` — distribusi search provider (wikipedia/ddg/firecrawl)
+
+Build image: `crawl4ai-setup` post-install di Dockerfile (idempotent, warm browser bridge cache).
+
+## Wikipedia Direct REST API
+
+`tools/search/wikipedia.py` punya `WikiClient` lengkap pakai `httpx.AsyncClient` ke MediaWiki Action API. Tier 1 discovery. Surface:
+
+| Method | Endpoint | Use case |
+|---|---|---|
+| `opensearch(query, limit)` | `action=opensearch` | Type-ahead, query pendek, hasil canonical title |
+| `fulltext_search(query, limit)` | `action=query&list=search` | Fallback OpenSearch kalau hits < 3 |
+| `category_members(category, limit)` | `action=query&list=categorymembers` | Enumeration eksaustif (e.g. `Category:Defence_exhibitions`) |
+| `extracts(titles)` | `prop=extracts&exintro&explaintext` | Batch intro paragraph (50 titles per call) |
+| `page_categories(titles)` | `prop=categories` | Batch klasifikasi |
+| `extlinks(title)` | `prop=extlinks` | External URLs cited oleh artikel — direct vendor candidates |
+| `outbound_links(title)` | `prop=links&plnamespace=0` | Internal /wiki/ link |
+
+ToS-compliant: User-Agent mandatory (`AutoCrawler/0.2 ...`), `maxlag=5`, `Accept-Encoding: gzip`, concurrency `Semaphore(2)`. Auto exponential backoff on `ratelimited` / 429.
+
+Multi-search reweight (`tools/search/multi.py`):
+* **Tier 1**: Wikipedia direct (opensearch + category_members)
+* **Tier 2**: DuckDuckGo via `ddgs`
+* **Tier 3**: Region-specific (baidu/naver/yahoo_japan kalau query hint China/Korea/Japan)
+* **Tier 4**: Firecrawl (cuma kalau `ENABLE_FIRECRAWL=true`)
+
+Wikipedia article scraper (`tools/scrapers/wikipedia.py`) sekarang gabungkan dua jalur:
+1. **Internal `/wiki/` links** (existing) — classify via category heuristic, emit `company` + `organisation`
+2. **External links via `extlinks` API** (NEW) — direct vendor URL cited oleh artikel, confidence 0.90
+
+Verify dengan:
+```bash
+docker compose exec api crawl wiki-test https://en.wikipedia.org/wiki/Eurosatory
+```
+
+## Orkestrator Board
+
+Halaman `/orkestrator` di frontend tampilkan canvas LangGraph workflow real-time pakai Vue Flow. Enam node (discover → worker_extract / worker_pdf_extract → worker_resolve → worker_enrich → finalize), edge animated saat upstream node aktif, side panel scroll event ticker live.
+
+Backend pipeline:
+* `orchestrator/events.py` emitter ke Redis Stream `autocrawl:events` (MAXLEN 10000)
+* Tiap LangGraph node panggil `await emit_event(node, event, run_id, payload)` di `started` / `completed` / `failed`
+* `GET /api/orchestrator/state` aggregate counters per node dari window 1000 event terakhir
+* `GET /api/orchestrator/events?since=<id>&limit=<n>` tail XRANGE untuk frontend
+
+Frontend `OrchestratorBoardPage.vue` poll state tiap 2 detik dan events tiap 1.5 detik. `HudFlowNode.vue` custom Vue Flow node dengan tactical chrome (LED pulse, code, label, mini grid AKTIF/OK/GAGAL counter).
+
+Pure cosmetic — gak drive backend behavior, cuma observability. Best buat presentasi ke management atau debug saat satu stage stuck.
 
 ## Translation Bahasa Indonesia (NLLB-200)
 
@@ -433,8 +537,8 @@ logs/
 
 ## Cara Kerja Singkat
 
-1. **Discovery**. LLM expand topic dari `config/seed_topics.yaml` jadi 8 sampai 15 query variasi (juga dalam bahasa lokal kalau region China, Jepang, Korea, atau Russia). Multi sumber search (Firecrawl, DuckDuckGo, Google News RSS, Wikipedia, plus Baidu, Naver, Yahoo Japan kalau region cocok).
-2. **Extraction**. Scraper khusus per situs aggregator (10times, generic fallback) hasilkan daftar exhibitor. Bersamaan, PDF Finder cari brosur PDF expo dan PDF Extractor parsing pakai PyMuPDF, pdfplumber, atau Surya OCR.
+1. **Discovery**. LLM expand topic dari `config/seed_topics.yaml` jadi 8 sampai 15 query variasi (juga dalam bahasa lokal kalau region China, Jepang, Korea, atau Russia). Multi sumber search **tiered**: Wikipedia REST direct (Tier 1, OpenSearch + CategoryMembers), DuckDuckGo via `ddgs` (Tier 2), Google News RSS, plus Baidu/Naver/Yahoo Japan kalau region cocok, plus Firecrawl (Tier 4, cuma kalau `ENABLE_FIRECRAWL=true`).
+2. **Extraction**. Scraper khusus per situs aggregator (10times, Wikipedia article, generic fallback) hasilkan daftar exhibitor. Wikipedia path gabungkan internal `/wiki/` link classification + external links dari `extlinks` API. Bersamaan, PDF Finder cari brosur PDF expo (lewat Crawl4AI `c4ai_find_pdfs`) dan PDF Extractor parsing pakai PyMuPDF, pdfplumber, atau Surya OCR. PDF metadata (filename, sha256, size, page_count, vendors_found, downloaded_at) auto-persisted ke tabel `pdfs` setelah extraction selesai.
 3. **Resolution**. Komponen paling penting. Tiap exhibitor dihadapkan ke ladder schema.org json ld, anchor "Visit Website", analisa outbound link, lalu LLM tie break. Aggregator dan social media pasti ditolak via blacklist di `config/aggregator_blacklist.yaml`. Untuk vendor dari PDF yang cuma punya nama, name resolver pakai search plus LLM untuk nemuin domain aslinya.
 4. **Dedup**. Chroma cosine similarity. Vendor yang mirip cuma di update expo list nya, tidak di enrich ulang.
 5. **Enrichment**. Gabungan whois, dns, sitemap, schema.org organization, Open Graph, regex email, Wayback. LLM merge semua jadi profil Vendor sesuai schema Pydantic. Field yang tidak bisa diisi free tier ditandai `enrichment_gap`.
@@ -458,9 +562,9 @@ Per domain rate limit (1 request per detik via Redis token bucket) tetap dihorma
 
 ## Roadmap Fase
 
-**Fase 1 (sekarang).** Hanya tier gratis. Target 100 vendor terenrich. Pakai whois, dns, sitemap, schema.org, vendor self crawl. Counter `vendors_enriched_total` jadi gerbang exit.
+**Fase 1 (sekarang).** Hanya tier gratis. Target 100 vendor terenrich. Pakai whois, dns, sitemap, schema.org, vendor self crawl. **Crawl4AI** (Apache-2.0 OSS) sebagai primary scraper, **Wikipedia REST API direct** sebagai Tier 1 discovery, DDGS sebagai Tier 2. Cuma bayar OpenAI token aja. Counter `vendors_enriched_total >= 100` jadi gerbang exit.
 
-**Fase 2 (nanti).** Setelah milestone Fase 1 tercapai, tambah Hunter berbayar, Apollo, Crunchbase API, proxycurl LinkedIn, residential proxy. Re enrich vendor lama yang `enrichment_gap` nya panjang.
+**Fase 2 (nanti).** Setelah milestone Fase 1 tercapai, tambah Hunter berbayar, Apollo, Crunchbase API, proxycurl LinkedIn, residential proxy. Optional re-aktivasi Firecrawl (`ENABLE_FIRECRAWL=true`) untuk volume search yang DDGS gak handle. Brave Search API untuk SERP reliability. Pertimbangkan SearXNG self-hosted kalau DDGS rate limit jadi masalah. Re enrich vendor lama yang `enrichment_gap` nya panjang.
 
 ## Jalankan Tes
 
@@ -481,7 +585,7 @@ npm run test
 npm run typecheck
 ```
 
-Cakupan saat ini: 152 backend test plus 26 frontend test (total 178 hijau). Backend cover URL canonicalization, aggregator blacklist, schema validation, vendor URL resolver pakai fixture HTML 10times, region detection multilingual, atomic JSON writer, ekstraksi PDF parser, dedup SHA256 PDF store, table parser PDF extractor, name resolver scoring, email verifier (syntax, MX, disposable, role-based, domain match), 7 endpoint API dengan TestClient plus SQLite in-memory. Frontend cover komponen StatCard, DataTable, CompletenessBar, IndustryBadge, ProvenanceTimeline.
+Cakupan saat ini: backend unit test (URL canonicalization, aggregator blacklist, schema validation, vendor URL resolver, region detection multilingual, atomic JSON writer, PDF parser, PDF dedup SHA256, name resolver scoring, email verifier, API endpoint smoke test). Frontend test legacy sudah dibersihkan saat redesign tactical (component tests yang lama refer ke komponen yang udah dihapus). Test coverage frontend bisa ditambah ulang nanti untuk komponen Hud* yang baru.
 
 ## File Penting
 
@@ -496,17 +600,32 @@ Cakupan saat ini: 152 backend test plus 26 frontend test (total 178 hijau). Back
 | `backend/src/crawler/store/db_reporter.py` | Tulis Vendor / Expo / Run ke Postgres dual-write dengan JSON |
 | `backend/src/crawler/db/models.py` | SQLAlchemy ORM Vendor, Expo, ExpoVendor, Pdf, Run |
 | `backend/src/crawler/db/repositories/` | Repository CRUD plus query stats per entitas |
-| `backend/src/crawler/api/app.py` | FastAPI factory plus lifespan plus CORS |
-| `backend/src/crawler/api/routes/` | 13 endpoint termasuk stats untuk charts |
-| `backend/src/crawler/graph.py` | LangGraph state machine plus parallel fan out |
-| `backend/src/crawler/agents/discovery.py` | Dynamic seed generation plus multi sumber search |
+| `backend/src/crawler/api/app.py` | FastAPI factory plus lifespan plus CORS plus Crawl4AI close hook |
+| `backend/src/crawler/api/routes/` | 17 endpoint termasuk stats, settings, orchestrator |
+| `backend/src/crawler/api/routes/runs.py` | Trigger run dengan Redis SETNX active-run lock + persist RunSummary ke DB |
+| `backend/src/crawler/api/routes/health.py` | Health expanded (db, redis, chroma, llm, disk, uptime) |
+| `backend/src/crawler/api/routes/orchestrator.py` | Snapshot state + events tail untuk Orkestrator Board |
+| `backend/src/crawler/orchestrator/events.py` | Redis Stream emitter `autocrawl:events` |
+| `backend/src/crawler/graph.py` | LangGraph state machine plus parallel fan out plus emit_event instrumentation |
+| `backend/src/crawler/db/engine.py` | init_db dengan idempotent ALTER TABLE patches untuk Postgres |
+| `backend/src/crawler/tools/crawl4ai_client/client.py` | Crawl4AIClient singleton (scrape, extract, find_pdfs, scrape_many) |
+| `backend/src/crawler/tools/search/wikipedia.py` | WikiClient REST direct (opensearch, search, category_members, extracts, extlinks) |
+| `backend/src/crawler/tools/scrapers/wikipedia.py` | Article scraper internal links + extlinks dual path |
+| `backend/src/crawler/tools/scrapers/pdf_extractor.py` | PDF parsing + auto pdf_repo.upsert ke DB setelah extraction |
+| `backend/src/crawler/agents/discovery.py` | Dynamic seed generation plus multi sumber search tiered |
 | `backend/src/crawler/agents/enricher.py` | Free tools enrichment plus LLM merge |
 | `backend/src/crawler/store/vector_store.py` | Chroma vendor dedup |
-| `frontend/src/views/OverviewPage.vue` | Dashboard utama dengan 6 chart industrial |
-| `frontend/src/components/charts/` | Industri pie, country bar, source type pie, timeline, gauge phase 2, runs mode bar |
-| `frontend/src/api/client.ts` | Axios client plus typed endpoints |
+| `frontend/src/views/OverviewPage.vue` | Pusat Komando dengan 6 KPI tile + 12-col grid charts |
+| `frontend/src/views/DiagnosticsPage.vue` | System diagnostics (per-component health, Phase 2 gauge, runtime config) |
+| `frontend/src/views/OrchestratorBoardPage.vue` | Vue Flow canvas LangGraph workflow real-time |
+| `frontend/src/components/HudFlowNode.vue` | Custom Vue Flow node dengan tactical chrome + LED |
+| `frontend/src/components/HudHeartbeat.vue` | API/DB heartbeat strip di topbar |
+| `frontend/src/components/HudUptime.vue` | Live uptime counter dari /api/health uptime_seconds |
+| `frontend/src/components/charts/` | IndustryBarChart (replace pie), country bar, source type pie, timeline, gauge phase 2, runs mode bar |
+| `frontend/src/api/client.ts` | Axios client plus typed endpoints (incl orchestrator) |
 | `frontend/src/composables/useTheme.ts` | Light dan dark mode toggle |
 | `frontend/src/composables/useApiHealth.ts` | Live ping status backend |
+| `frontend/src/composables/useUptime.ts` | Uptime counter dengan reference dari API |
 | `frontend/src/composables/useCsvExport.ts` | Helper export CSV |
 | `config/aggregator_blacklist.yaml` | Domain yang tidak boleh dianggap vendor |
 | `config/seed_topics.yaml` | Topic dan anchor expo untuk LLM seed expansion |
