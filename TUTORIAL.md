@@ -12,12 +12,15 @@ AutoCrawl adalah crawler otonom yang berjalan 24 jam non stop untuk dua tujuan u
 
 Hasil akhirnya disimpan dalam Postgres dan tersedia di dashboard web untuk dilihat, dicari, dan diekspor. Data text vendor (deskripsi, tagline, produk, industri) otomatis diterjemahkan ke Bahasa Indonesia menggunakan model NLLB-200 dari Meta. Versi English aslinya tetap disimpan jadi bisa di toggle bolak balik di dashboard.
 
-Stack teknologi:
+Stack teknologi.
+
 - Backend Python 3.11 dengan FastAPI dan LangGraph untuk pipeline orchestration
 - Postgres 16 untuk storage utama, ChromaDB untuk vector deduplication, Redis untuk queue dan rate limiting
-- Frontend Vue 3 dengan ECharts visualization
-- Translasi NLLB-200 distilled 600M via CTranslate2 (jalan di CPU, ~1.2GB int8)
-- Semua di dockerize, satu perintah `docker compose up` cukup
+- Frontend Vue 3 dengan ECharts dan world map 2.5D interaktif (MapLibre GL plus @antv/l7)
+- LLM lokal default lewat **Ollama** dengan model **IBM Granite 4.1** (Apache-2.0, gratis, fully offline). OpenAI cuma escape hatch opsional kalau Ollama terlalu lambat
+- Search lokal lewat **OpenSERP** multi engine (Google, Bing, Yandex, Baidu via headless Chromium self hosted)
+- Translasi NLLB-200 distilled 600M via CTranslate2 (jalan di CPU, sekitar 1.2 GB int8)
+- Semua di dockerize, satu perintah `docker compose up -d --build` cukup
 
 ---
 
@@ -27,22 +30,23 @@ Yang harus ada di mesin Anda sebelum mulai.
 
 | Item | Minimum | Direkomendasikan |
 |---|---|---|
-| RAM | 8 GB | 16 GB |
-| Disk kosong | 20 GB | 40 GB |
-| CPU | 4 core | 8 core |
+| RAM | 12 GB | 24 GB |
+| Disk kosong | 30 GB | 60 GB |
+| CPU | 6 core | 8 core plus |
+| GPU NVIDIA | tidak wajib | 8 GB plus VRAM (untuk speedup Ollama) |
 | Docker Desktop | 4.30 atau lebih baru | terbaru |
-| Koneksi internet | wajib (untuk OpenAI, Firecrawl, dan model download) | stabil |
-| OS | Windows 10/11, macOS 12+, atau Linux | apa saja yang support Docker |
+| Koneksi internet | wajib saat first build (download model) | stabil |
+| OS | Windows 10/11, macOS 12 plus, atau Linux | apa saja yang support Docker |
+
+RAM lebih besar dibanding versi lama karena sekarang stack include container Ollama (model granite4.1:3b dan granite-embedding:278m sama sama resident di memory) plus OpenSERP yang punya headless Chromium sendiri.
 
 Yang harus dipersiapkan sebelum lanjut.
 
 1. Docker Desktop terpasang dan running. Cek dengan `docker --version` dan `docker compose version`. Kalau dua duanya jalan, oke.
-2. API Key OpenAI (jenis platform.openai.com, bukan ChatGPT). Dapat di https://platform.openai.com/api-keys. Pastikan billing nya aktif minimum 5 USD top up.
-3. API Key Firecrawl. Dapat di https://www.firecrawl.dev. Free tier nya 500 credit per bulan, cukup untuk testing dan run dev mode.
+2. (Opsional) API Key OpenAI dari https://platform.openai.com/api-keys, kalau mau pakai cloud LLM sebagai escape hatch. Default stack pakai Ollama lokal, jadi key ini boleh kosong.
+3. (Opsional) API Key Firecrawl dari https://www.firecrawl.dev. Default `ENABLE_FIRECRAWL=false`, jadi boleh kosong juga. Crawler default pakai Crawl4AI yang gratis.
 
-Optional kalau mau ganti ke LLM lokal supaya tidak bayar OpenAI.
-
-4. Ollama terpasang di host (bukan dalam Docker). Download di https://ollama.com.
+Tidak perlu install Ollama di host. Container `ollama` di compose otomatis pull model granite4.1:3b dan granite-embedding:278m saat first boot.
 
 ---
 
@@ -55,33 +59,43 @@ Lakukan urutan ini sekali saja saat pertama kali setup.
 git clone <REPO_URL> autocrawl
 cd autocrawl
 
-# Salin template env, lalu edit dua kunci paid
+# Salin template env, default udah cukup untuk full lokal
 cp .env.example .env
 ```
 
-Buka file `.env` di editor pilihan. Cari dua baris ini lalu ganti dengan kunci asli Anda.
+Default `.env` sudah pakai Ollama lokal jadi boleh tidak diisi apa apa untuk first boot. Kalau mau switch ke OpenAI cloud nanti, edit:
 
 ```
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxx
-FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxx
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
 ```
 
 Variabel lain biarkan sesuai default. Bisa diubah kemudian kalau ada keperluan khusus (lihat bagian "Switch LLM Provider" dan "Aktifkan Translation").
 
-Build dan start semua service.
+Build dan start semua service dalam satu perintah.
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose up -d --build
 ```
 
-Build pertama kali akan memakan waktu 15 sampai 25 menit karena harus download playwright chromium, surya OCR (3 GB), dan NLLB model (1.5 GB). Setelah itu cache nya tersimpan, build berikutnya jauh lebih cepat.
+Build pertama kali akan memakan waktu sekitar 25 sampai 35 menit karena harus download playwright chromium, surya OCR (3 GB), NLLB model (1.5 GB), image OpenSERP plus Chromium internal nya (sekitar 600 MB), dan Ollama dengan dua model granite (sekitar 3 GB). Setelah itu cache nya tersimpan, build berikutnya jauh lebih cepat (sekitar 30 detik kalau cuma edit code).
 
-Kalau ingin build tanpa NLLB (untuk hemat ruang dan waktu, akan fallback otomatis ke OpenAI untuk translasi), tambahkan flag.
+Pantau progress download model granite di container ollama.
+
+```bash
+docker compose logs -f ollama
+```
+
+Yang lo cari di output, baris `[ollama-init] pulling granite4.1:3b` lalu `[ollama-init] bootstrap complete`. Tunggu sampai status container `ollama` jadi `healthy` (sekitar 5 sampai 8 menit pertama kali).
+
+Kalau ingin build tanpa NLLB untuk hemat ruang dan waktu, tambahkan flag.
 
 ```bash
 docker compose build --build-arg INSTALL_NLLB=false
 ```
+
+Tanpa NLLB, translasi akan fallback ke LLM Ollama (granite4.1:3b) atau OpenAI kalau provider di switch.
 
 ---
 
@@ -103,9 +117,25 @@ autocrawl-frontend       running
 autocrawl-redis          healthy
 autocrawl-chroma         running
 autocrawl-flaresolverr   running
+autocrawl-ollama         healthy
+autocrawl-openserp       healthy
 autocrawl-langfuse       running
 autocrawl-prometheus     running
 autocrawl-grafana        running
+```
+
+Verifikasi tambahan untuk dua container baru.
+
+```bash
+# Pastikan dua model granite udah ke pull
+docker compose exec ollama ollama list
+# Output yang diharapkan:
+# granite4.1:3b              2.1 GB
+# granite-embedding:278m     950 MB
+
+# Pastikan OpenSERP listening
+curl http://localhost:7000/health
+# atau di PowerShell: Invoke-WebRequest http://localhost:7000/health
 ```
 
 Akses dashboard web di browser.
@@ -115,6 +145,8 @@ Akses dashboard web di browser.
 | http://localhost:8090 | Dashboard utama AutoCrawl |
 | http://localhost:8081/api/health | API health check JSON |
 | http://localhost:8081/api/docs | Swagger UI auto generated |
+| http://localhost:11434 | Ollama daemon (cuma `/api/tags` yang public) |
+| http://localhost:7000 | OpenSERP, cek `/health` |
 | http://localhost:3001 | Langfuse (LLM tracing, login pertama buat akun saja) |
 | http://localhost:3000 | Grafana (metrics dashboard, login admin admin) |
 | http://localhost:9090 | Prometheus raw metrics |
@@ -129,7 +161,12 @@ Ada dua cara memicu run pertama.
 
 ### Cara A. Lewat dashboard
 
-Buka http://localhost:8090. Di pojok kanan atas ada tombol "Jalankan run". Klik. Tombol berubah menjadi "Sedang berjalan" dengan badge kuning di samping judul. Pipeline akan jalan di background selama 5 sampai 15 menit (tergantung mode).
+Buka http://localhost:8090. Di pojok kanan atas ada tombol kuning **ENGAGE** dengan dropdown chevron untuk pilih mode (dev, normal, agresif). Klik untuk pilih mode lalu konfirmasi. Tombol berubah jadi **BERJALAN** dengan badge kuning **OPS RUNNING** di sampingnya. Pipeline akan jalan di background selama 5 sampai 15 menit (tergantung mode dan kecepatan Ollama).
+
+Kalau lo mau stop di tengah run.
+
+- Klik tombol merah **STOP** di topbar untuk graceful drain. Worker akan selesaikan iterasi yang sedang jalan, lalu break. Selesai sekitar 30 sampai 60 detik.
+- Shift plus klik tombol **STOP** untuk munculkan modal STOP PAKSA. Klik konfirm. Subprocess di kill langsung, selesai sekitar 5 detik. Token in flight kebakar tapi state di reset bersih.
 
 ### Cara B. Lewat CLI di dalam container
 
@@ -139,11 +176,13 @@ docker compose exec api crawl run --mode dev
 
 Mode `dev` artinya hanya 1 atau 2 expo yang diproses, cocok untuk smoke test pertama. Mode lain.
 
-| Mode | Expo per run | Waktu | Cost OpenAI |
-|---|---|---|---|
-| dev | 1 atau 2 | 3 sampai 8 menit | ~0.05 USD |
-| normal | 5 sampai 10 | 10 sampai 20 menit | ~0.30 USD |
-| aggressive | 15 sampai 25 | 25 sampai 50 menit | ~1.20 USD |
+| Mode | Expo per run | Waktu (Ollama lokal) | Waktu (OpenAI cloud) | Cost LLM |
+|---|---|---|---|---|
+| dev | 1 atau 2 | 8 sampai 20 menit | 3 sampai 8 menit | 0 USD lokal, 0.05 USD cloud |
+| normal | 5 sampai 10 | 30 sampai 90 menit | 10 sampai 20 menit | 0 USD lokal, 0.30 USD cloud |
+| aggressive | 15 sampai 25 | 1 sampai 3 jam | 25 sampai 50 menit | 0 USD lokal, 1.20 USD cloud |
+
+Catatan, waktu Ollama tergantung kecepatan GPU. CPU only sangat lambat (5 sampai 15 token per detik), RTX 3060 atau 4070 sekitar 60 sampai 100 token per detik.
 
 Untuk run berkala otomatis (tiap 30 menit), container `crawler` sudah menjalankan scheduler bawaan. Cek log untuk konfirmasi.
 
@@ -157,14 +196,22 @@ Cari baris yang mengandung `scheduler.started` atau `pipeline.run_complete`.
 
 ## 6. Membaca Hasil
 
-Setelah run selesai, refresh dashboard. Akan terlihat empat kartu di halaman Ringkasan.
+Setelah run selesai, refresh dashboard. Halaman **Pusat Komando** akan menampilkan beberapa elemen.
 
-- Vendors enriched: jumlah vendor unik yang sudah diperkaya
-- Expos discovered: jumlah expo unik yang ditemukan
-- PDFs processed: jumlah brosur PDF yang diekstrak
-- Phase 2 progress: progress menuju ambang batas 100 vendor (saat tercapai, fitur paid Crunchbase dan Apollo otomatis aktif)
+**World map 2.5D di paling atas.** Setiap negara yang ada expo nya muncul cylinder bar dengan warna berdasar jumlah vendor (cyan untuk 1 sampai 4, hijau untuk 5 sampai 19, kuning untuk 20 sampai 49, oranye untuk 50 sampai 99, merah magenta untuk hub top 3). Drag untuk pan, scroll untuk zoom, klik kanan plus drag untuk tilt 3D, hover cylinder untuk tooltip, klik kiri untuk side panel detail. Polling 5 detik jadi cylinder baru muncul otomatis tanpa refresh.
 
-Klik tab "Daftar Vendor" untuk daftar lengkap. Klik salah satu baris untuk halaman detail. Di halaman detail.
+**KPI tile.**
+
+- VND total vendor unik
+- EXP total expo unik
+- PDF jumlah brosur PDF terindeks
+- TRL persentase yang udah diterjemahkan ke Bahasa Indonesia
+- PH2 progress menuju ambang 100 vendor untuk unlock Phase 2
+- OPS jumlah operasi run
+
+**Chart.** Akuisisi vendor per hari, distribusi industri, sumber data, top negara, mode operasi, gauge phase 2.
+
+Klik tab "Vendor" di sidebar untuk daftar lengkap. Klik salah satu baris untuk halaman detail. Di halaman detail.
 
 - Header card berisi nama, domain, logo, deskripsi, tagline, industri, dan produk. Kalau vendor sudah diterjemahkan, tampil badge `ID` dan tombol `Lihat English` untuk swap ke teks asli.
 - Card "Source Trail" menampilkan timeline dari mana data berasal (aggregator URL, PDF brosur, search resolution).
@@ -201,47 +248,70 @@ Setelah import sukses, refresh dashboard. Data akan muncul.
 
 ## 8. Switch LLM Provider
 
-Default provider adalah OpenAI (cloud, billed). Kalau ingin gratis, switch ke Ollama lokal.
-
-Edit `.env`.
+Default provider adalah Ollama lokal dengan IBM Granite 4.1 (gratis, fully offline). Konfigurasi default di `docker-compose.yml`.
 
 ```
 LLM_PROVIDER=ollama
+LLM_BASE_URL=http://ollama:11434
 EMBEDDING_PROVIDER=ollama
-OPENAI_MODEL_HEAVY=qwen3.5:14b
-OPENAI_MODEL_LIGHT=qwen3.5:4b
-OPENAI_EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_BASE_URL=http://ollama:11434
+OPENAI_MODEL_HEAVY=granite4.1:3b
+OPENAI_MODEL_LIGHT=granite4.1:3b
+OPENAI_EMBEDDING_MODEL=granite-embedding:278m
 ```
 
-Pull model nya di host (bukan di container).
+Container `ollama` di compose otomatis pull dua model saat first boot lewat script `backend/ops/ollama_init.sh`. Tidak perlu install Ollama di host.
+
+Cek model setelah container healthy.
 
 ```bash
-ollama pull qwen3.5:14b
-ollama pull qwen3.5:4b
-ollama pull nomic-embed-text
+docker compose exec ollama ollama list
 ```
 
-Ollama default listen di `host.docker.internal:11434` yang sudah dikenal oleh container karena Docker Desktop menyediakan itu otomatis. Restart stack.
+Output yang diharapkan, `granite4.1:3b` (sekitar 2.1 GB) dan `granite-embedding:278m` (sekitar 950 MB).
+
+### Switch ke OpenAI cloud (escape hatch)
+
+Kalau Ollama lokal terlalu lambat di mesin lo dan punya OpenAI key, override env di `.env`.
+
+```
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxx
+OPENAI_MODEL_HEAVY=gpt-4o
+OPENAI_MODEL_LIGHT=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+Restart container yang affected.
 
 ```bash
 docker compose restart crawler api
 ```
 
-Cek log untuk `ollama.warmup_ok`. Kalau muncul error koneksi, pastikan Ollama service sedang running di host (`ollama serve`).
+Chroma vector store auto detect mismatch dimensi 1536 dan 768. Saat embedding provider switch, koleksi vendor lama otomatis di wipe dan dibangun ulang. Tidak perlu intervensi manual.
 
-Kelebihan Ollama: tidak ada limit token, tidak ada biaya. Kekurangan: lebih lambat 3 sampai 6 kali dibanding OpenAI cloud, dan butuh GPU lokal (NVIDIA dengan minimal 8 GB VRAM untuk model 4b, 16 GB untuk 14b).
+### Tuning kecepatan Ollama
+
+Default OLLAMA_NUM_PARALLEL=2 dan OLLAMA_KEEP_ALIVE=-1 udah set di compose. Concurrency crawler otomatis di throttle ke 2 untuk discovery dan 8 untuk enrichment via `for_provider("ollama")` di `config.py`.
+
+Kalau lo punya GPU NVIDIA, edit `docker-compose.yml` di service `ollama`, uncomment block `deploy.resources.reservations.devices`. Pastikan `nvidia-container-toolkit` udah terinstall di host. Throughput naik 5 sampai 10x.
+
+### Reliability structured output
+
+Granite 3B kadang miss field optional di Pydantic schema saat enrichment 30 ribu token plus. Wrapper `chat()` punya retry loop 3 attempt dengan `with_structured_output(method="json_schema")` yang constrain decoding lewat JSON schema. Failure case di log dengan event `llm.structured_validation_retry`. Aman untuk operasional normal.
 
 ---
 
 ## 9. Aktifkan Translation Bahasa Indonesia
 
-Translation otomatis aktif kalau Anda build dengan default `INSTALL_NLLB=true`. Cek model nya sudah di download.
+Translation otomatis aktif kalau Anda build dengan default `INSTALL_NLLB=true`. Cek model nya sudah di download di lokasi `/opt/nllb_ct2` (bukan `/app/data/nllb_ct2` versi lama, karena bind mount akan menutupi file di build time).
 
 ```bash
-docker compose exec crawler ls -lh /app/data/nllb_ct2
+docker compose exec crawler ls -lh /opt/nllb_ct2
 ```
 
-Yang harus terlihat: file `model.bin` ukuran sekitar 600 sampai 700 MB plus beberapa file tokenizer.
+Yang harus terlihat, file `model.bin` ukuran sekitar 600 sampai 700 MB plus beberapa file tokenizer.
 
 Kalau folder kosong, build ulang dengan flag.
 
@@ -391,6 +461,17 @@ Vendor yang diidentifikasi lewat Wikipedia akan diresolusi domain aslinya saat f
 docker compose restart crawler        # restart hanya scheduler
 docker compose restart api            # restart hanya FastAPI
 docker compose restart frontend       # restart hanya Vue dashboard
+docker compose restart ollama         # restart Ollama daemon (model di reload dari disk)
+docker compose restart openserp       # restart OpenSERP (jarang diperlukan)
+```
+
+### Cek model Ollama dan paksa pull ulang
+
+```bash
+docker compose exec ollama ollama list
+docker compose exec ollama ollama pull granite4.1:3b           # idempotent
+docker compose exec ollama ollama pull granite-embedding:278m
+docker compose exec ollama ollama rm granite4.1:3b             # hapus (next boot auto pull lagi)
 ```
 
 ### Stop semua
@@ -441,6 +522,74 @@ curl -X POST http://localhost:8081/api/runs/trigger -H "Content-Type: applicatio
 
 ---
 
+## 13a. Konfigurasi Scope di UI (live, no restart)
+
+Buka http://localhost:8090/konfigurasi. Empat tab tersedia.
+
+1. **Kata Kunci Cakupan** untuk classifier in scope dan out of scope
+2. **Blacklist Domain** plus whitelist override
+3. **Seed Topik** dan anchor expo untuk LLM expansion
+4. **Prompt AI** untuk system prompt scope classifier
+
+Default sudah ke seed dari `config/aggregator_blacklist.yaml` dan `config/seed_topics.yaml` saat container api first boot. Setiap row punya badge sumber, `YAML` (read only, cuma boleh toggle off), `USER` (manual lo tambah), `AI` (saran AI yang lo approve).
+
+Tombol **Saran AI** di tiap tab manggil LLM untuk kasih kandidat rule. Lo kasih hint singkat misal "hotel chain Asia yang sering nyangkut", LLM keluarkan list kandidat dengan confidence. Centang yang lo setuju lalu klik tambahkan. Tidak ada auto apply, semua approval manual.
+
+Perubahan apapun di sini berlaku **realtime**. Backend bump counter `scope:version` di Redis, crawler dan api proses cek counter tiap polling 1 detik dan refresh in memory snapshot kalau berubah. Tidak perlu restart container.
+
+Untuk reset prompt AI ke default, klik tombol **Reset ke Default** di tab Prompt AI.
+
+---
+
+## 13b. World Map Interaktif
+
+Halaman Pusat Komando paling atas tampilkan world map 2.5D dengan globe projection (MapLibre 5 plus). Saat zoom out, bumi melengkung. Saat zoom in, fade ke flat mercator.
+
+Kontrol kamera.
+
+- **Drag** untuk pan
+- **Scroll wheel** untuk zoom
+- **Klik kanan plus drag** untuk tilt 3D plus rotate kompas
+- **Double click** untuk zoom in
+- Tombol +, -, dan reset di pojok kanan bawah
+
+Interaksi data layer.
+
+- **Hover** cylinder, tooltip muncul dengan flag emoji negara plus stat. Cylinder yang di hover flash putih sebagai feedback visual.
+- **Klik kiri** cylinder, side panel slide in dari kanan. Berisi top 5 expo dan top 3 vendor di negara itu, plus tombol drilldown ke `/expos?country=X` dan `/vendors?country=X`.
+- **Klik kanan** cylinder, context menu mini (Filter Ekspo di sini, Filter Vendor di sini, Copy ISO).
+- **ESC** tutup panel atau context menu.
+
+Polling 5 detik. Begitu crawler enrich vendor baru dengan country valid, marker baru muncul tanpa refresh. Indikator hijau pulsing **LIVE 5s** di header map konfirmasi polling jalan.
+
+---
+
+## 13c. Stop Run dari UI atau API
+
+Saat run aktif, tombol **STOP** merah muncul di topbar di sebelah kiri tombol BERJALAN.
+
+**Klik biasa** untuk graceful drain. Backend set flag asyncio Event, worker check di boundary tiap stage, in flight request natural complete, drain selesai sekitar 30 sampai 60 detik. Vendor yang sudah enriched tetap ke commit ke DB. Tabel `runs` baris terakhir punya `notes='aborted_graceful'`.
+
+**Shift plus klik** munculkan modal merah konfirmasi STOP PAKSA. Klik konfirm. Backend cancel asyncio task langsung, kill Chromium subprocess, abort LLM call mid flight, reset state `exhibitor_refs.status` yang stuck. Selesai sekitar 5 detik. Token in flight kebakar tapi state DB clean. Tabel `runs` punya `notes='aborted_force'`.
+
+Atau lewat curl untuk automation.
+
+```bash
+# Graceful
+curl -X POST http://localhost:8081/api/runs/stop \
+     -H "Content-Type: application/json" \
+     -d '{"force": false}'
+
+# Paksa
+curl -X POST http://localhost:8081/api/runs/stop \
+     -H "Content-Type: application/json" \
+     -d '{"force": true}'
+```
+
+Setelah stop, lock `autocrawl:active_run` di Redis otomatis di clear. Trigger run baru langsung available.
+
+---
+
 ## 14. Troubleshooting Umum
 
 ### Port conflict saat `docker compose up`
@@ -488,27 +637,56 @@ docker network connect autocrawl_crawl_net <nama-container>
 
 ### OOM (Out Of Memory)
 
-Surya OCR atau NLLB load model bisa makan RAM. Kalau Docker Desktop di Windows/Mac, naikkan limit nya di Settings > Resources. Minimum 8 GB, recommended 16 GB.
+Surya OCR, NLLB, plus model granite di Ollama bisa makan RAM total sampai 15 sampai 20 GB saat semua resident. Kalau Docker Desktop di Windows atau Mac, naikkan limit nya di Settings, Resources. Minimum 12 GB, recommended 24 GB.
 
-Kalau RAM tetap tidak cukup, build tanpa NLLB.
+Kalau RAM tetap tidak cukup, ada beberapa opsi.
 
 ```bash
+# 1. Build tanpa NLLB (translation fallback ke Granite via Ollama)
 docker compose build --build-arg INSTALL_NLLB=false
+
+# 2. Build tanpa Surya OCR (PDF scanned tidak akan ke ekstrak)
+docker compose build --build-arg INSTALL_SURYA=false
+
+# 3. Turunkan browser pool size di .env
+BROWSER_POOL_SIZE=8
+CRAWL4AI_MAX_CONCURRENT=2
 ```
 
-Translation akan fallback ke OpenAI gpt-4o-mini (billed tapi ringan).
+### Ollama lambat atau timeout
 
-### OpenAI 429 rate limit
+Granite 3B di CPU butuh sekitar 5 sampai 15 token per detik, terlalu lambat untuk mode normal. Solusi.
 
-Kalau hit limit `Tier 1` OpenAI (terutama saat mode aggressive), turunkan concurrency di `.env`.
+1. Aktifkan GPU NVIDIA. Edit `docker-compose.yml` di service `ollama`, uncomment block `deploy.resources.reservations.devices`. Throughput naik 5 sampai 10x. Pastikan `nvidia-container-toolkit` udah terinstall di host.
+2. Pakai mode `dev` saja saat tanpa GPU. Mode normal dan agresif terlalu berat.
+3. Switch ke OpenAI cloud kalau punya budget. Lihat section 8.
+
+### OpenSERP captcha 503
+
+Saat Google detect bot, OpenSERP balikin 503 dengan body `captcha detected`. Logger crawler tampilkan `openserp.captcha`. Ini ditangani retry exponential backoff (5 detik, 10 detik, 20 detik, max 2 retry). Kalau persistent, edit `.env` untuk cabut Google saja.
 
 ```
-EXPO_DISCOVERY_CONCURRENCY=2
-EXHIBITOR_EXTRACTION_CONCURRENCY=5
-ENRICHMENT_CONCURRENCY=10
+OPENSERP_ENGINES=bing,yandex,baidu
 ```
 
-Atau switch ke Ollama (lihat bagian 8).
+Restart api dan crawler. Sisa engines tetap kasih coverage lumayan untuk discovery.
+
+### Stage 03 04 05 di Orkestrator board kosong
+
+Pipeline downstream gak jalan kemungkinan karena stage 02 (Extract Aggregator) return 0 ref. Cek query DB.
+
+```bash
+docker compose exec autocrawl-db psql -U postgres -d autocrawl -c "
+SELECT status, failure_category, COUNT(*)
+FROM exhibitor_refs GROUP BY status, failure_category;
+"
+```
+
+Kalau semua status `extracted` dengan jumlah 0, generic scraper di `tools/scrapers/generic.py` gak match URL pattern di halaman aggregator. Cek log scraper untuk diagnostik.
+
+```bash
+docker compose logs crawler --tail 200 | grep generic_scraper
+```
 
 ### Frontend kosong tapi API balikin data
 
@@ -523,15 +701,22 @@ docker compose up -d frontend
 
 ### Trigger run balikin 409 Conflict
 
-Pesan `A run is already active`. Tunggu run sekarang selesai, atau force kill dengan restart crawler container.
+Pesan `A run is already active`. Cara paling cepat, klik tombol merah **STOP** di topbar (graceful drain selesai sekitar 30 sampai 60 detik) atau shift plus klik untuk **STOP PAKSA** (selesai 5 detik).
+
+Kalau tombol STOP di dashboard tidak respons (misal API down), reset manual.
 
 ```bash
-docker compose restart crawler
-```
+# Force release lock di Redis
+docker compose exec redis redis-cli DEL autocrawl:active_run
 
-Lalu reset state active run di api.
+# Reconcile DB state, mark run yang gantung jadi aborted
+docker compose exec autocrawl-db psql -U postgres -d autocrawl -c "
+UPDATE runs SET finished_at = NOW(), notes = 'aborted_manual' WHERE finished_at IS NULL;
+UPDATE exhibitor_refs SET status = 'extracted'
+  WHERE status IN ('resolving', 'enriching');
+"
 
-```bash
+# Restart api supaya state in memory clean
 docker compose restart api
 ```
 
@@ -541,21 +726,25 @@ Tombol di dashboard akan kembali bisa diklik.
 
 ## 15. FAQ
 
-**Berapa biaya OpenAI per run?**
+**Berapa biaya LLM per run?**
 
-Ballpark per mode (asumsi gpt-4o-mini untuk light call dan gpt-4o untuk heavy merge).
+Default Ollama lokal, biaya LLM nol. Tinggal biaya listrik untuk GPU atau CPU.
 
-- dev: 0.03 sampai 0.08 USD per run
-- normal: 0.20 sampai 0.40 USD per run
-- aggressive: 0.80 sampai 1.50 USD per run
+Kalau switch ke OpenAI cloud, ballpark per mode (asumsi gpt-4o-mini untuk light call dan gpt-4o untuk heavy merge enricher).
 
-Kalau mode normal jalan tiap 30 menit selama 24 jam = 48 run = 9.60 sampai 19.20 USD per hari. Untuk produksi pakai aggressive 1x sehari dan normal 4x sehari, totalnya sekitar 5 sampai 8 USD per hari.
+- dev, 0.03 sampai 0.08 USD per run
+- normal, 0.20 sampai 0.40 USD per run
+- aggressive, 0.80 sampai 1.50 USD per run
 
-Kalau switch ke Ollama, biaya OpenAI = 0. Tinggal listrik.
+Kalau mode normal jalan tiap 30 menit selama 24 jam, sekitar 48 run, totalnya 9.60 sampai 19.20 USD per hari. Untuk produksi pakai aggressive 1 kali sehari dan normal 4 kali sehari, sekitar 5 sampai 8 USD per hari.
+
+Set hard budget cap di OpenAI dashboard untuk safety, di Settings, Billing, Usage limits.
 
 **Kapan butuh GPU?**
 
-GPU dibutuhkan kalau Anda pakai Ollama dengan model 14b atau lebih besar. Untuk model 4b masih jalan di CPU (lambat tapi feasible). NLLB-200 distilled 600M sudah optimized int8 untuk CPU, tidak butuh GPU.
+Sangat direkomendasikan kalau pakai Ollama default (granite4.1:3b). CPU only sekitar 5 sampai 15 token per detik, mode normal jadi 1 sampai 3 jam. Dengan RTX 3060 atau 4070, throughput naik ke 60 sampai 120 token per detik, mode normal selesai 30 sampai 90 menit.
+
+NLLB-200 distilled 600M sudah optimized int8 untuk CPU, tidak butuh GPU. Surya OCR juga jalan di CPU walau bisa pakai CUDA kalau tersedia.
 
 **Kapan unlock Phase 2?**
 
@@ -569,7 +758,9 @@ PHASE_2_VENDOR_THRESHOLD=50
 
 **Bisakah jalan tanpa internet?**
 
-Tidak. Crawler butuh akses ke 10times, Wikipedia, target vendor websites, plus OpenAI API. Kalau pakai Ollama dan disable Firecrawl + WHOIS lookup, secara teknis masih butuh akses ke target site untuk crawl. Internet wajib.
+Tidak. Crawler butuh akses ke 10times, Wikipedia, target vendor websites untuk fetch HTML mentah, plus tile basemap CartoDB untuk world map. LLM dan embedding udah lokal lewat Ollama. Search via OpenSERP juga butuh internet karena scrape Google atau Bing. Internet wajib operasional.
+
+First boot perlu bandwidth ekstra untuk download model (granite 3 GB, NLLB 1.5 GB, Surya 3 GB, OpenSERP image 600 MB). Setelah cached, restart selanjutnya tidak butuh download ulang.
 
 **Bisakah ekstrak data dari LinkedIn / Crunchbase langsung?**
 

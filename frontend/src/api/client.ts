@@ -4,6 +4,7 @@ import type {
   ErrorSummaryResponse,
   ExhibitorRefRow,
   Expo,
+  ExpoCountryDetail,
   ExpoCountryStat,
   HealthResponse,
   IndustryStat,
@@ -92,6 +93,10 @@ export const api = {
       http.get<RunModeStat[]>('/stats/runs-mode', { params: { days } }).then((r) => r.data),
     expoCountries: () =>
       http.get<ExpoCountryStat[]>('/stats/expo-countries').then((r) => r.data),
+    expoCountryDetail: (country: string) =>
+      http
+        .get<ExpoCountryDetail>(`/stats/expo-countries/${encodeURIComponent(country)}`)
+        .then((r) => r.data),
   },
   health: () => http.get<HealthResponse>('/health').then((r) => r.data),
   settings: () => http.get<SettingsResponse>('/settings').then((r) => r.data),
@@ -130,6 +135,10 @@ export const api = {
   activeRun: () =>
     http
       .get<{ active: Record<string, unknown> | null }>('/runs/active')
+      .then((r) => r.data),
+  stopRun: (force = false) =>
+    http
+      .post<{ status: string; mode: string }>('/runs/stop', { force })
       .then((r) => r.data),
   config: {
     listScopeRules: (params: { kind?: ScopeRuleKind; source?: string; enabled?: boolean } = {}) =>

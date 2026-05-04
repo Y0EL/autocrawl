@@ -1,25 +1,70 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import HudPanel from '@/components/HudPanel.vue'
 import HudEmptyState from '@/components/HudEmptyState.vue'
+import { resolveCountry, flagEmoji } from '@/data/country_resolver'
 
+const route = useRoute()
+const router = useRouter()
 const search = ref('')
 
+const countryFilter = computed(() => {
+  const q = route.query.country
+  return typeof q === 'string' ? q : null
+})
+
+const countryFlag = computed(() => {
+  const c = countryFilter.value
+  if (!c) return ''
+  const rec = resolveCountry(c)
+  return rec ? flagEmoji(rec.cca2) : ''
+})
+
 const { data, isLoading } = useQuery({
-  queryKey: ['expos', { search }],
-  queryFn: () => api.expos({ search: search.value, limit: 100 }),
+  queryKey: ['expos', { search, country: countryFilter }],
+  queryFn: () =>
+    api.expos({
+      search: search.value,
+      country: countryFilter.value ?? undefined,
+      limit: 100,
+    }),
   refetchInterval: 30000,
   refetchOnWindowFocus: true,
 })
 
 const items = computed(() => data.value?.items ?? [])
+
+function clearCountryFilter() {
+  const next = { ...route.query }
+  delete next.country
+  router.replace({ path: route.path, query: next })
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3 p-3">
+    <div
+      v-if="countryFilter"
+      class="flex items-center justify-between border border-cyan-400/40 bg-cyan-500/5 px-3 py-2"
+    >
+      <div class="flex items-center gap-2 font-mono text-xs text-cyan-200">
+        <span class="text-base">{{ countryFlag }}</span>
+        <span class="uppercase tracking-ops">FILTER NEGARA: {{ countryFilter }}</span>
+      </div>
+      <button
+        class="hud-btn-ghost h-7 px-2 text-2xs"
+        type="button"
+        title="Hapus filter"
+        @click="clearCountryFilter"
+      >
+        <FaIcon :icon="['fas', 'xmark']" class="mr-1 text-2xs" />
+        HAPUS
+      </button>
+    </div>
+
     <HudPanel title="Filter Ekspo" code="EXP-FLT">
       <div class="relative">
         <FaIcon

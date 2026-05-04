@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import type { Vendor } from '@/api/types'
 import HudPanel from '@/components/HudPanel.vue'
@@ -10,11 +10,36 @@ import HudCompletenessBar from '@/components/HudCompletenessBar.vue'
 import HudStatusPill from '@/components/HudStatusPill.vue'
 import HudEmptyState from '@/components/HudEmptyState.vue'
 import { exportCsv } from '@/composables/useCsvExport'
+import { resolveCountry, flagEmoji } from '@/data/country_resolver'
+
+const route = useRoute()
+const router = useRouter()
 
 const search = ref('')
 const industry = ref('')
-const country = ref('')
+const country = ref(typeof route.query.country === 'string' ? route.query.country : '')
 const status = ref('enriched')
+
+// Keep dropdown synced when navigating to /vendors?country=… from another page.
+watch(
+  () => route.query.country,
+  (next) => {
+    country.value = typeof next === 'string' ? next : ''
+  },
+)
+
+const countryFlag = computed(() => {
+  if (!country.value) return ''
+  const rec = resolveCountry(country.value)
+  return rec ? flagEmoji(rec.cca2) : ''
+})
+
+function clearCountryFilter() {
+  country.value = ''
+  const next = { ...route.query }
+  delete next.country
+  router.replace({ path: route.path, query: next })
+}
 
 const countriesQ = useQuery({
   queryKey: ['stats', 'countries-all'],
@@ -78,6 +103,25 @@ function sourcePill(v: Vendor): { tone: 'crit' | 'info' | 'accent' | 'muted'; la
 
 <template>
   <div class="flex flex-col gap-3 p-3">
+    <div
+      v-if="country"
+      class="flex items-center justify-between border border-cyan-400/40 bg-cyan-500/5 px-3 py-2"
+    >
+      <div class="flex items-center gap-2 font-mono text-xs text-cyan-200">
+        <span class="text-base">{{ countryFlag }}</span>
+        <span class="uppercase tracking-ops">FILTER NEGARA: {{ country }}</span>
+      </div>
+      <button
+        class="hud-btn-ghost h-7 px-2 text-2xs"
+        type="button"
+        title="Hapus filter"
+        @click="clearCountryFilter"
+      >
+        <FaIcon :icon="['fas', 'xmark']" class="mr-1 text-2xs" />
+        HAPUS
+      </button>
+    </div>
+
     <HudPanel title="Filter Vendor" code="VND-FLT">
       <template #actions>
         <button

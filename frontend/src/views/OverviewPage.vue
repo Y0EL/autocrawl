@@ -18,15 +18,21 @@ import Phase2GaugeChart from '@/components/charts/Phase2GaugeChart.vue'
 const days = ref(30)
 const router = useRouter()
 
+// All overview KPIs poll fast (5s) so the dashboard moves visibly while the
+// crawler is running. The numbers are cheap aggregates on the API side.
 const overviewQ = useQuery({
   queryKey: ['overview'],
   queryFn: api.overview,
-  refetchInterval: 30000,
+  refetchInterval: 5000,
+  refetchOnWindowFocus: true,
 })
+// World map data — polled aggressively (5s) so new countries appear in
+// near-realtime as the crawler discovers them.
 const expoCountriesQ = useQuery({
   queryKey: ['stats', 'expo-countries'],
   queryFn: api.stats.expoCountries,
-  refetchInterval: 30000,
+  refetchInterval: 5000,
+  refetchOnWindowFocus: true,
 })
 
 function onMapPick(payload: { country: string; cca2: string }) {
@@ -36,29 +42,35 @@ const countriesQ = useQuery({
   queryKey: ['stats', 'countries'],
   queryFn: () => api.stats.countries(10),
 })
-const sourcesQ = useQuery({ queryKey: ['stats', 'source-types'], queryFn: api.stats.sourceTypes })
+const sourcesQ = useQuery({
+  queryKey: ['stats', 'source-types'],
+  queryFn: api.stats.sourceTypes,
+  refetchInterval: 10000,
+})
 const timelineQ = useQuery({
   queryKey: ['stats', 'timeline', days],
   queryFn: () => api.stats.timeline(days.value),
+  refetchInterval: 10000,
 })
 const runsModeQ = useQuery({
   queryKey: ['stats', 'runs-mode'],
   queryFn: () => api.stats.runsMode(30),
+  refetchInterval: 10000,
 })
 const recentQ = useQuery({
   queryKey: ['vendors', 'recent'],
   queryFn: () => api.vendors({ limit: 8, sort: 'last_enriched_at:desc' }),
-  refetchInterval: 60000,
+  refetchInterval: 5000,
 })
 const runsRecentQ = useQuery({
   queryKey: ['runs', 'recent'],
   queryFn: () => api.runs(5),
-  refetchInterval: 30000,
+  refetchInterval: 5000,
 })
 const allVendorsQ = useQuery({
   queryKey: ['vendors', 'all-for-stats'],
   queryFn: () => api.vendors({ limit: 200 }),
-  refetchInterval: 60000,
+  refetchInterval: 30000,
 })
 
 const overview = computed(() => overviewQ.data.value)
@@ -158,18 +170,7 @@ function runLabel(r: { finished_at?: string | null; failures: number }) {
         <span class="font-mono text-xs uppercase tracking-ops text-base-400 dark:text-base-500">
           OPS-01 / KOMANDO PUSAT
         </span>
-        <HudStatusPill tone="ok" label="LIVE" :pulse="true" />
-      </div>
-      <div class="flex items-center gap-1">
-        <button class="hud-btn-ghost h-7" @click="shiftDays(-7)">
-          <FaIcon :icon="['fas', 'chevron-left']" class="text-2xs" />
-          <span>7H</span>
-        </button>
-        <span class="hud-chip">{{ days }} HARI</span>
-        <button class="hud-btn-ghost h-7" @click="shiftDays(7)">
-          <span>7H</span>
-          <FaIcon :icon="['fas', 'chevron-right']" class="text-2xs" />
-        </button>
+        <HudStatusPill tone="ok" label="LIVE 5s" :pulse="true" />
       </div>
     </div>
 
@@ -246,7 +247,30 @@ function runLabel(r: { finished_at?: string | null; failures: number }) {
         class="xl:col-span-7"
       >
         <template #actions>
-          <span class="hud-chip">{{ days }}H</span>
+          <div class="flex items-center gap-1.5">
+            <span class="hidden font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500 md:inline">
+              WINDOW
+            </span>
+            <button
+              class="hud-btn-ghost h-6 px-1.5"
+              type="button"
+              title="Kurangi 7 hari"
+              :disabled="days <= 7"
+              @click="shiftDays(-7)"
+            >
+              <FaIcon :icon="['fas', 'chevron-left']" class="text-2xs" />
+            </button>
+            <span class="hud-chip">{{ days }} HARI</span>
+            <button
+              class="hud-btn-ghost h-6 px-1.5"
+              type="button"
+              title="Tambah 7 hari"
+              :disabled="days >= 365"
+              @click="shiftDays(7)"
+            >
+              <FaIcon :icon="['fas', 'chevron-right']" class="text-2xs" />
+            </button>
+          </div>
         </template>
         <VendorTimelineChart
           :data="timelineQ.data.value ?? []"

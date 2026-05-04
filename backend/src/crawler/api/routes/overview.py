@@ -54,6 +54,14 @@ async def stats_expo_countries(session: AsyncSession = Depends(get_db)) -> list[
     return await expo_repo.country_breakdown(session)
 
 
+@router.get("/stats/expo-countries/{country}")
+async def stats_expo_country_detail(
+    country: str, session: AsyncSession = Depends(get_db)
+) -> dict:
+    """Detail breakdown for one country (drives the world-map side panel)."""
+    return await expo_repo.country_detail(session, country=country)
+
+
 @router.get("/stats/timeline")
 async def stats_timeline(
     days: int = Query(30, ge=1, le=365),

@@ -4,7 +4,9 @@ Crawler otonom yang jalan 24 jam non stop. Fungsinya menemukan expo bidang secur
 
 > **Baru pertama kali pakai?** Lihat [TUTORIAL.md](TUTORIAL.md) untuk panduan langkah demi langkah dari nol (15 section, lengkap dengan troubleshooting).
 
-Stack inti backend: LangGraph, LangChain, Playwright, **Crawl4AI** (Apache-2.0 OSS, ganti Firecrawl), Surya OCR, OpenAI atau Ollama, FastAPI, SQLAlchemy async, Postgres, Redis Streams. Stack frontend: Vue 3, TypeScript, Tailwind CSS, Apache ECharts, **Vue Flow** (canvas LangGraph viz), TanStack Query, Pinia, FontAwesome 6. Semua self host, dijalankan via Docker Compose.
+Stack inti backend. LangGraph, LangChain (langchain-ollama dan langchain-openai), Playwright, **Crawl4AI** (Apache-2.0 OSS, ganti Firecrawl), Surya OCR, **Ollama dengan IBM Granite 4.1** (LLM lokal default, gratis, Apache-2.0), **OpenSERP** (SERP self-hosted multi engine, mendukung Google, Bing, Yandex, Baidu), FastAPI, SQLAlchemy async, Postgres, Redis Streams.
+
+Stack frontend. Vue 3, TypeScript, Tailwind CSS, Apache ECharts, **Vue Flow** (canvas LangGraph viz), **MapLibre GL dengan @antv/l7** (world map 2.5D globe projection plus drilldown panel interaktif), TanStack Query, Pinia, FontAwesome 6. Semua self host, dijalankan via Docker Compose. Default tanpa cloud dependency, OpenAI cuma escape hatch opsional.
 
 ## Struktur Repo
 
@@ -52,14 +54,16 @@ crawl/
 cp .env.example .env
 ```
 
-Lalu isi `.env`. Minimum yang perlu diisi:
+Lalu isi `.env`. Default semua provider sudah lokal jadi `.env` boleh kosong total saat first boot. Yang opsional, kalau mau switch ke OpenAI cloud sebagai escape hatch:
 
 ```
-OPENAI_API_KEY=sk_xxx          # boleh kosong kalau pakai Ollama
-FIRECRAWL_API_KEY=                # boleh kosong, default ENABLE_FIRECRAWL=false
+OPENAI_API_KEY=sk_xxx          # opsional, kosongkan untuk full lokal Ollama
+LLM_PROVIDER=openai            # opsional, default ollama
+EMBEDDING_PROVIDER=openai      # opsional, default ollama
+FIRECRAWL_API_KEY=              # opsional, default ENABLE_FIRECRAWL=false
 ```
 
-Crawl4AI dipakai sebagai default scraper (Apache-2.0 OSS, gratis, BYOK OpenAI). Firecrawl legacy tetep ada di codebase tapi off by default. Lihat section `Crawl4AI Integration` dan `.env.example` untuk semua flag.
+Crawl4AI dipakai sebagai default scraper (Apache-2.0 OSS, gratis). LLM default Ollama dengan IBM Granite 4.1 yang otomatis di pull saat container ollama pertama kali boot (sekitar 3 GB total untuk chat plus embedding). Firecrawl legacy tetep ada di codebase tapi off by default. Lihat section `Crawl4AI Integration` dan `.env.example` untuk semua flag.
 
 Build dan jalankan:
 
@@ -91,6 +95,8 @@ Buka dashboard di http://localhost:8090.
 | Langfuse | http://localhost:3001 | **Buat akun pertama kali**. Klik "Sign up", isi email, password, dan organization name. Setelah masuk, buat project baru, copy `Public Key` dan `Secret Key` ke `.env` lalu restart container crawler |
 | Chroma | http://localhost:8000 | Tanpa login. Hanya API, dipakai internal oleh crawler |
 | FlareSolverr | http://localhost:8191 | Tanpa login. Hanya layanan, dipakai internal saat hadapi Cloudflare |
+| Ollama | http://localhost:11434 | Tanpa login. Daemon LLM lokal. Cek model dengan `docker compose exec ollama ollama list` |
+| OpenSERP | http://localhost:7000 | Tanpa login. Cek health di `/health`. Endpoint per engine misal `/google/search?text=...` |
 | Redis | localhost:6379 | Tanpa login. Hanya internal |
 | Postgres Langfuse | internal | Hanya internal, user dan password sudah otomatis di compose |
 
@@ -181,8 +187,8 @@ Container `autocrawl-api` jalan di port 8081, baca dari Postgres. Endpoint utama
 
 | Method | Path | Deskripsi |
 |---|---|---|
-| GET | `/api/health` | Status per komponen: db, redis, chroma, llm, disk, plus uptime_seconds |
-| GET | `/api/settings` | Konfigurasi runtime read-only (LLM provider, translation, mode, dll) |
+| GET | `/api/health` | Status per komponen, db, redis, chroma, llm, disk, plus uptime_seconds |
+| GET | `/api/settings` | Konfigurasi runtime read only (LLM provider, translation, mode, dll) |
 | GET | `/api/overview` | Counter total, latest run, industry breakdown |
 | GET | `/api/vendors` | Daftar vendor paginated, filter industry, country, search |
 | GET | `/api/vendors/{domain}` | Profil vendor lengkap |
@@ -190,21 +196,50 @@ Container `autocrawl-api` jalan di port 8081, baca dari Postgres. Endpoint utama
 | GET | `/api/expos/{expo_id}` | Detail expo plus vendor_domains |
 | GET | `/api/pdfs` | Daftar PDF brosur |
 | GET | `/api/runs` | Riwayat run |
-| GET | `/api/runs/active` | Status run yang lagi jalan (lewat Redis SETNX lock) |
-| POST | `/api/runs/trigger` | Luncurkan run baru, body `{mode: dev|normal|aggressive}` |
+| GET | `/api/runs/active` | Status run yang lagi jalan plus flag `stop_requested` |
+| POST | `/api/runs/trigger` | Luncurkan run baru, body `{mode: dev | normal | aggressive}` |
+| POST | `/api/runs/stop` | Stop run aktif. Body `{force: bool}`. Default graceful drain |
 | GET | `/api/stats/industries` | Untuk pie chart industri |
-| GET | `/api/stats/countries` | Untuk bar chart top negara |
+| GET | `/api/stats/countries` | Untuk bar chart top negara vendor |
 | GET | `/api/stats/source-types` | PDF vs aggregator vs search |
 | GET | `/api/stats/timeline` | Akumulasi vendor per hari |
 | GET | `/api/stats/runs-mode` | Distribusi mode run |
-| GET | `/api/orchestrator/state` | Snapshot graph nodes + per-node counters (active, completed, failed) |
-| GET | `/api/orchestrator/events` | Tail event stream `autocrawl:events` (long-poll friendly) |
+| GET | `/api/stats/expo-countries` | Per negara, hitung expo dan vendor untuk world map |
+| GET | `/api/stats/expo-countries/{country}` | Detail per negara untuk panel drilldown world map |
+| GET | `/api/orchestrator/state` | Snapshot graph nodes plus per node counters (active, completed, failed) |
+| GET | `/api/orchestrator/events` | Tail event stream `autocrawl:events` (long poll friendly) |
+| GET | `/api/orchestrator/throughput` | Rolling window throughput dengan adaptive fallback (60s, 5m, 30m, 1h, 24h) |
+| GET | `/api/exhibitor-refs/stats` | Bucket counts per status dan failure category |
+| GET | `/api/exhibitor-refs` | List ref dengan filter status atau failure category |
+| GET | `/api/config/scope` | List scope rules user editable (kata kunci, domain, topik) |
+| POST | `/api/config/scope` | Tambah rule baru |
+| PATCH | `/api/config/scope/{id}` | Toggle enabled atau edit notes |
+| DELETE | `/api/config/scope/{id}` | Hapus rule (block untuk source `yaml_default`) |
+| GET | `/api/config/scope/prompt` | Prompt AI scope classifier saat ini |
+| PUT | `/api/config/scope/prompt` | Set prompt custom |
+| DELETE | `/api/config/scope/prompt` | Reset prompt ke default |
+| POST | `/api/config/scope/suggest` | LLM saran rule kandidat berdasarkan hint user |
 
 OpenAPI Swagger UI: http://localhost:8081/api/docs
 
 ## Frontend Admin Console
 
-Vue 3 plus TypeScript plus Tailwind plus ECharts plus TanStack Query plus Pinia plus FontAwesome 6. Light dan dark mode otomatis ikut preferensi sistem, bisa di toggle manual, tersimpan di localStorage. Tujuh halaman: Ringkasan, Daftar Vendor, Detail Vendor (timeline source provenance), Daftar Expo, Detail Expo, Brosur PDF, Riwayat Run.
+Vue 3 dengan TypeScript, Tailwind, ECharts, MapLibre GL, @antv/l7, TanStack Query, Pinia, FontAwesome 6. Light dan dark mode otomatis ikut preferensi sistem, bisa di toggle manual, tersimpan di localStorage.
+
+Sepuluh halaman utama:
+
+1. Pusat Komando (Overview) dengan world map 2.5D interaktif di paling atas
+2. Daftar Vendor (filter industri, negara, status, plus banner filter dari klik map)
+3. Detail Vendor (timeline source provenance per vendor)
+4. Daftar Expo (filter negara dari klik map)
+5. Detail Expo
+6. Brosur PDF
+7. Riwayat Operasi (run history dengan polling 5 detik)
+8. Diagnostik (status per komponen)
+9. Orkestrator (Vue Flow canvas LangGraph workflow real time)
+10. Konfigurasi (4 tab edit kata kunci scope, blacklist domain, seed topik, prompt AI dengan toggle realtime via Redis version counter)
+
+Topbar punya tombol ENGAGE untuk trigger run plus dropdown mode (dev, normal, agresif). Saat run aktif, muncul tombol STOP merah yang default graceful drain (klik biasa) dan force kill (shift plus klik dengan modal konfirm).
 
 ### Charts industrial (Apache ECharts)
 
@@ -223,19 +258,9 @@ Halaman Vendor punya filter industri (dropdown), filter negara (dropdown dinamis
 
 Halaman Expo punya filter negara dan search nama expo.
 
-### Mode Dev tanpa Backend (opsional)
-
-Default frontend hit backend real (`VITE_USE_MOCKS=false`). Kalau backend tidak jalan dan lo cuma mau cek UI:
-
-```bash
-cd frontend
-echo "VITE_USE_MOCKS=true" > .env.local
-npm run dev
-```
-
-MSW intercept semua request `/api/*` dengan mock data realistis (3 vendor sample, 2 expo, 2 PDF, 3 run).
-
 ### Dev Lokal
+
+Frontend selalu hit backend real. Tidak ada mock layer. Pastikan stack docker udah jalan sebelum `npm run dev`.
 
 ```bash
 cd frontend
@@ -243,7 +268,7 @@ npm install
 npm run dev          # http://localhost:5173
 npm run build        # bundle production ke dist/
 npm run preview      # cek build di port 8090
-npm run test         # 26 vitest test
+npm run test         # vitest
 npm run typecheck    # vue-tsc strict
 ```
 
@@ -275,41 +300,57 @@ Mode tersedia:
 | normal | 15 worker enrichment | run harian biasa, default |
 | aggressive | 50 worker enrichment | catch up burst di akhir minggu |
 
-## Ganti Provider LLM (OpenAI atau Ollama)
+## Provider LLM (Ollama default, OpenAI opsional)
 
-Kalau OpenAI tier kena rate limit, ganti ke Ollama lokal. Sama sekali tidak perlu ubah kode, cuma tukar env.
+Default semua LLM call masuk ke **Ollama lokal** dengan model **IBM Granite 4.1** (Apache-2.0, gratis, fully offline). Container `ollama` di compose otomatis pull dua model saat first boot.
 
-Edit `.env`:
+* `granite4.1:3b` untuk chat (sekitar 2.1 GB Q4_K_M)
+* `granite-embedding:278m` untuk embedding 768 dim multilingual (sekitar 950 MB)
 
-```
-LLM_PROVIDER=ollama
-EMBEDDING_PROVIDER=ollama
-OPENAI_MODEL_HEAVY=qwen3.5:4b
-OPENAI_MODEL_LIGHT=qwen3.5:4b
-OPENAI_EMBEDDING_MODEL=qwen3_embedding:4b
-```
-
-Di host (sekali saja) pull model:
+Cek model setelah container ollama healthy:
 
 ```bash
-ollama pull qwen3.5:4b
-ollama pull qwen3_embedding:4b
+docker compose exec ollama ollama list
 ```
 
-Container akses Ollama via `host.docker.internal:11434/v1` (sudah default). Restart:
+Tuning otomatis untuk single GPU lewat env di compose:
+
+```
+OLLAMA_KEEP_ALIVE=-1               # model tetap resident, no cold start
+OLLAMA_NUM_PARALLEL=2              # max 2 concurrent request
+OLLAMA_MAX_LOADED_MODELS=2         # chat plus embedding sama sama resident
+```
+
+Concurrency di crawler otomatis di throttle saat detect Ollama provider (lihat `config.py:for_provider`). Discovery di cap 2, enrichment di cap 8.
+
+### GPU NVIDIA
+
+Edit `docker-compose.yml`, uncomment block `deploy.resources.reservations.devices` di service `ollama`. Pastikan host udah install `nvidia-container-toolkit`. Throughput naik 5 sampai 10x dibanding CPU only.
+
+### Escape hatch ke OpenAI cloud
+
+Kalau Ollama lokal terlalu lambat dan lo punya OpenAI key, override env di `.env`:
+
+```
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=sk_xxx
+OPENAI_MODEL_HEAVY=gpt-4o
+OPENAI_MODEL_LIGHT=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+Lalu restart container crawler dan api:
 
 ```bash
-docker compose restart crawler
+docker compose restart crawler api
 ```
 
-Catatan tuning Ollama supaya tidak timeout saat banyak request bareng:
+Chroma vector store auto detect dimensi mismatch (768 ke 1536 atau sebaliknya). Saat embedding provider switch, koleksi vendor lama otomatis di wipe dan dibangun ulang. Tidak perlu intervensi manual.
 
-```bash
-[Environment]::SetEnvironmentVariable("OLLAMA_NUM_PARALLEL", "4", "User")
-[Environment]::SetEnvironmentVariable("OLLAMA_KEEP_ALIVE", "30m", "User")
-```
+### Reliabilitas structured output di model kecil
 
-Lalu restart layanan Ollama.
+Granite 3B kadang miss field optional di Pydantic schema saat enrichment besar. Wrapper `chat()` punya retry loop 3 attempt. Setiap retry pakai `with_structured_output(method="json_schema")` yang constrain decoding dengan JSON schema, jauh lebih reliable dari free form JSON. Failure case di log dengan event `llm.structured_validation_retry`.
 
 ## Crawl4AI Integration
 
@@ -367,11 +408,13 @@ Build image: `crawl4ai-setup` post-install di Dockerfile (idempotent, warm brows
 
 ToS-compliant: User-Agent mandatory (`AutoCrawler/0.2 ...`), `maxlag=5`, `Accept-Encoding: gzip`, concurrency `Semaphore(2)`. Auto exponential backoff on `ratelimited` / 429.
 
-Multi-search reweight (`tools/search/multi.py`):
-* **Tier 1**: Wikipedia direct (opensearch + category_members)
-* **Tier 2**: DuckDuckGo via `ddgs`
-* **Tier 3**: Region-specific (baidu/naver/yahoo_japan kalau query hint China/Korea/Japan)
-* **Tier 4**: Firecrawl (cuma kalau `ENABLE_FIRECRAWL=true`)
+Multi search reweight (`tools/search/multi.py`).
+
+* **Tier 1**. Wikipedia direct (opensearch plus category_members)
+* **Tier 2**. DuckDuckGo via `ddgs` plus Google News RSS
+* **Tier 3**. **OpenSERP** multi engine (Google, Bing, Yandex, Baidu) via headless Chromium lokal, default ON saat `ENABLE_OPENSERP=true`
+* **Tier 4**. Region specific (baidu, naver, yahoo_japan kalau query hint China, Korea, Japan)
+* **Tier 5**. Firecrawl (cuma kalau `ENABLE_FIRECRAWL=true`)
 
 Wikipedia article scraper (`tools/scrapers/wikipedia.py`) sekarang gabungkan dua jalur:
 1. **Internal `/wiki/` links** (existing) — classify via category heuristic, emit `company` + `organisation`
@@ -535,9 +578,79 @@ logs/
     errors.jsonl             hanya event level ERROR
 ```
 
+## OpenSERP (Multi Engine SERP Self Hosted)
+
+Container `openserp` (image `karust/openserp:latest`, MIT, port 7000) adalah scraper SERP yang fronting Google, Bing, Yandex, Baidu, dan DuckDuckGo via headless Chromium. Default `ENABLE_OPENSERP=true` dan engine list `google,bing,yandex,baidu`.
+
+Provider Python di `tools/search/openserp.py` paralel ke semua engine yang di set, dedupe by URL, plus backoff exponential pada HTTP 503 (captcha Google) dengan max 2 retry per query. Hasil di merge ke `multi.py` aggregator bareng Wikipedia, DuckDuckGo, dan Google News RSS.
+
+Override engines via env:
+
+```
+ENABLE_OPENSERP=true
+OPENSERP_URL=http://openserp:7000
+OPENSERP_ENGINES=google,bing,yandex,baidu
+OPENSERP_TIMEOUT_SECONDS=30
+OPENSERP_MAX_RETRIES=2
+```
+
+Cek health:
+
+```bash
+curl http://localhost:7000/health
+docker compose logs openserp --tail 30
+```
+
+Saat ada captcha, log crawler nunjukin `openserp.captcha` dengan engine name. Worst case lo cabut Google saja, sisanya tetep jalan.
+
+## Konfigurasi Scope (UI editable)
+
+Halaman `/konfigurasi` di frontend kasih kontrol live atas behavior pipeline tanpa restart container. Empat tab.
+
+1. **Kata Kunci Cakupan** (in scope dan out of scope) untuk classifier
+2. **Blacklist Domain** (plus whitelist override)
+3. **Seed Topik** (topic name plus anchor expo untuk LLM expansion)
+4. **Prompt AI** (system prompt scope classifier yang bisa di edit langsung)
+
+Tabel `scope_rules` di Postgres jadi source of truth, otomatis di seed dari `config/aggregator_blacklist.yaml` dan `config/seed_topics.yaml` saat container api first boot. Setiap mutation lewat UI bump counter `scope:version` di Redis. Crawler dan api proses punya in memory snapshot yang re fetch dari DB tiap kali version berubah, polling 1 detik. Realtime, tidak ada TTL delay.
+
+Tombol "Saran AI" di tiap tab manggil `POST /api/config/scope/suggest`. LLM (granite4.1:3b atau gpt-4o-mini) keluarkan kandidat rule dengan confidence score, user approve manual sebelum masuk DB. Source label ada tiga, `yaml_default` (read only, cuma boleh toggle off), `user` (manual), `ai_suggested` (AI generated, approved user).
+
+## World Map 2.5D Tactical (Overview)
+
+Halaman Pusat Komando paling atas tampilkan world map 2.5D dengan **MapLibre GL** sebagai base map plus **@antv/l7** untuk data layer. Style basemap pakai **CartoDB Dark Matter** (free, no API key). Border negara di recolor cyan setelah style load supaya match HUD theme.
+
+Visual layer.
+
+* **Globe projection** (MapLibre 5.24 plus). Bumi melengkung saat zoom out, fade ke flat mercator saat zoom in. Infinite world copy aktif jadi pan ke samping tidak kelihatan ujung Antartika patah.
+* **Cylinder bar** per negara dengan height proporsional vendor count. Color tier dari cyan (1 sampai 4 vendor) sampai merah (50 plus).
+* **Glow halo** dual layer cyan di bawah cylinder.
+* **Pulse circle** animated.
+* **Fly arc 3D** dari top 3 hub country ke seluruh negara lain (cyan ke magenta, animated trail).
+* **Country code label** plus vendor count.
+
+Interaksi.
+
+* **Drag** pan, **scroll** zoom, **right click drag** tilt plus rotate, **double click** zoom in.
+* **Hover** cylinder, tooltip muncul dengan flag emoji plus stat. Cylinder yang di hover flash putih.
+* **Klik kiri** cylinder, side panel slide in dari kanan dengan top 5 expo plus top 3 vendor di negara itu, plus tombol drilldown ke `/expos?country=X` dan `/vendors?country=X`.
+* **Klik kanan** cylinder, context menu (Filter Ekspo, Filter Vendor, Copy ISO).
+* **ESC** tutup panel atau context menu.
+
+Data world map polling 5 detik ke `/api/stats/expo-countries`. Begitu crawler enrich vendor baru dengan country valid, marker baru muncul tanpa refresh. Indicator hijau pulsing **LIVE 5s** di header map konfirmasi polling jalan.
+
+## Stop Run Graceful atau Force
+
+Tombol STOP merah muncul di topbar saat ada run aktif.
+
+* **Klik biasa** kirim graceful drain. Backend set flag asyncio Event, worker check di boundary tiap stage, in flight request natural complete, drain selesai sekitar 30 sampai 60 detik. Vendor yang sudah enriched tetep ke commit. `runs.notes='aborted_graceful'`.
+* **Shift plus klik** munculkan modal konfirmasi STOP PAKSA. Backend cancel asyncio task langsung, kill Chromium subprocess via `_release_run_resources()`, abort LLM call mid flight, reset `exhibitor_refs.status` yang stuck. Selesai dalam 5 detik. Token in flight kebakar.
+
+Endpoint `POST /api/runs/stop` body `{force: bool}`. Lock Redis `autocrawl:active_run` otomatis di clear setelah stop. Trigger run baru langsung available.
+
 ## Cara Kerja Singkat
 
-1. **Discovery**. LLM expand topic dari `config/seed_topics.yaml` jadi 8 sampai 15 query variasi (juga dalam bahasa lokal kalau region China, Jepang, Korea, atau Russia). Multi sumber search **tiered**: Wikipedia REST direct (Tier 1, OpenSearch + CategoryMembers), DuckDuckGo via `ddgs` (Tier 2), Google News RSS, plus Baidu/Naver/Yahoo Japan kalau region cocok, plus Firecrawl (Tier 4, cuma kalau `ENABLE_FIRECRAWL=true`).
+1. **Discovery**. LLM expand topic dari `config/seed_topics.yaml` jadi 8 sampai 15 query variasi (juga dalam bahasa lokal kalau region China, Jepang, Korea, atau Russia). Multi sumber search tiered. Wikipedia REST direct (OpenSearch plus CategoryMembers), DuckDuckGo via `ddgs`, Google News RSS, plus regional engine (Baidu, Naver, Yahoo Japan) kalau region cocok, plus **OpenSERP** (Google, Bing, Yandex, Baidu via headless Chromium lokal) saat `ENABLE_OPENSERP=true`, plus Firecrawl cuma kalau `ENABLE_FIRECRAWL=true`.
 2. **Extraction**. Scraper khusus per situs aggregator (10times, Wikipedia article, generic fallback) hasilkan daftar exhibitor. Wikipedia path gabungkan internal `/wiki/` link classification + external links dari `extlinks` API. Bersamaan, PDF Finder cari brosur PDF expo (lewat Crawl4AI `c4ai_find_pdfs`) dan PDF Extractor parsing pakai PyMuPDF, pdfplumber, atau Surya OCR. PDF metadata (filename, sha256, size, page_count, vendors_found, downloaded_at) auto-persisted ke tabel `pdfs` setelah extraction selesai.
 3. **Resolution**. Komponen paling penting. Tiap exhibitor dihadapkan ke ladder schema.org json ld, anchor "Visit Website", analisa outbound link, lalu LLM tie break. Aggregator dan social media pasti ditolak via blacklist di `config/aggregator_blacklist.yaml`. Untuk vendor dari PDF yang cuma punya nama, name resolver pakai search plus LLM untuk nemuin domain aslinya.
 4. **Dedup**. Chroma cosine similarity. Vendor yang mirip cuma di update expo list nya, tidak di enrich ulang.
@@ -556,15 +669,15 @@ ENRICHMENT_CONCURRENCY=50
 PDF_EXTRACTION_CONCURRENCY=4
 ```
 
-Kalau pakai Ollama dengan satu GPU, concurrency otomatis dikecilkan supaya GPU tidak overload (auto throttle ke 2 untuk discovery dan 8 untuk enrichment).
+Karena default LLM lokal Ollama, concurrency otomatis dikecilkan supaya GPU tidak overload. Auto throttle ke 2 untuk discovery dan 8 untuk enrichment via `for_provider("ollama")` di `config.py`.
 
 Per domain rate limit (1 request per detik via Redis token bucket) tetap dihormati. Walaupun 50 worker jalan, satu domain tidak akan dipukul lebih cepat dari setting itu.
 
 ## Roadmap Fase
 
-**Fase 1 (sekarang).** Hanya tier gratis. Target 100 vendor terenrich. Pakai whois, dns, sitemap, schema.org, vendor self crawl. **Crawl4AI** (Apache-2.0 OSS) sebagai primary scraper, **Wikipedia REST API direct** sebagai Tier 1 discovery, DDGS sebagai Tier 2. Cuma bayar OpenAI token aja. Counter `vendors_enriched_total >= 100` jadi gerbang exit.
+**Fase 1 (sekarang).** Hanya tier gratis. Target 100 vendor terenrich. Pakai whois, dns, sitemap, schema.org, vendor self crawl. **Crawl4AI** (Apache-2.0 OSS) sebagai primary scraper, **Ollama plus Granite 4.1** sebagai LLM lokal default (gratis, Apache-2.0), **OpenSERP** multi engine self hosted untuk SERP coverage Google plus Bing plus Yandex plus Baidu, Wikipedia REST direct sebagai tier 1 discovery, DDGS plus Google News RSS sebagai tier 2. **Zero cloud cost by default**. Counter `vendors_enriched_total >= 100` jadi gerbang exit.
 
-**Fase 2 (nanti).** Setelah milestone Fase 1 tercapai, tambah Hunter berbayar, Apollo, Crunchbase API, proxycurl LinkedIn, residential proxy. Optional re-aktivasi Firecrawl (`ENABLE_FIRECRAWL=true`) untuk volume search yang DDGS gak handle. Brave Search API untuk SERP reliability. Pertimbangkan SearXNG self-hosted kalau DDGS rate limit jadi masalah. Re enrich vendor lama yang `enrichment_gap` nya panjang.
+**Fase 2 (nanti).** Setelah milestone Fase 1 tercapai, tambah Hunter berbayar, Apollo, Crunchbase API, proxycurl LinkedIn, residential proxy. Optional re aktivasi Firecrawl (`ENABLE_FIRECRAWL=true`) atau switch LLM ke OpenAI gpt-4o (`LLM_PROVIDER=openai`) untuk quality boost di enrichment yang Granite kena hallucinate. Brave Search API untuk SERP reliability. Pertimbangkan SearXNG self-hosted kalau OpenSERP captcha rate jadi masalah. Re enrich vendor lama yang `enrichment_gap` nya panjang.
 
 ## Jalankan Tes
 
@@ -627,7 +740,16 @@ Cakupan saat ini: backend unit test (URL canonicalization, aggregator blacklist,
 | `frontend/src/composables/useApiHealth.ts` | Live ping status backend |
 | `frontend/src/composables/useUptime.ts` | Uptime counter dengan reference dari API |
 | `frontend/src/composables/useCsvExport.ts` | Helper export CSV |
-| `config/aggregator_blacklist.yaml` | Domain yang tidak boleh dianggap vendor |
-| `config/seed_topics.yaml` | Topic dan anchor expo untuk LLM seed expansion |
-| `docker-compose.yml` | Stack lengkap self host (10 service) |
+| `config/aggregator_blacklist.yaml` | Domain yang tidak boleh dianggap vendor (auto seed ke `scope_rules` saat first boot) |
+| `config/seed_topics.yaml` | Topic dan anchor expo untuk LLM seed expansion (auto seed ke `scope_rules`) |
+| `backend/src/crawler/tools/search/openserp.py` | Provider SERP multi engine self hosted |
+| `backend/src/crawler/tools/scope_cache.py` | In memory snapshot scope rule plus prompt, di refresh realtime via Redis version counter |
+| `backend/src/crawler/db/scope_seed.py` | Auto import YAML default ke tabel `scope_rules` saat init |
+| `backend/src/crawler/api/routes/config_scope.py` | Endpoint UI Konfigurasi (CRUD rule, prompt, suggest) |
+| `backend/ops/ollama_init.sh` | Bootstrap script container ollama, idempotent pull granite4.1:3b plus granite-embedding:278m |
+| `frontend/src/components/HudWorldMap.vue` | World map 2.5D MapLibre plus L7 plus globe projection plus interactivity |
+| `frontend/src/components/HudCountryDetailPanel.vue` | Slide in detail panel side world map |
+| `frontend/src/views/ConfigurationPage.vue` | UI Konfigurasi 4 tab (scope keyword, blacklist, seed topik, prompt AI) |
+| `frontend/src/data/country_resolver.ts` | Resolve free text country ke ISO plus centroid lat lon (via world-countries) |
+| `docker-compose.yml` | Stack lengkap self host (12 service termasuk ollama plus openserp) |
 | `docker-compose.gpu.yml` | Overlay opsional untuk passthrough GPU NVIDIA |

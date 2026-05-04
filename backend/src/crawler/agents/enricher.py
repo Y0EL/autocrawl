@@ -215,6 +215,25 @@ async def _llm_merge(
     logo_url = site_data.get("logo_url")
     tech_stack = list(site_data.get("tech_stack") or [])
 
+    # Best-effort passive recon for richer profile. Each module checks its
+    # own enable flag and returns None on failure, so this never blocks the
+    # enrichment path.
+    related_subdomains: list[str] = []
+    urlscan_summary: dict | None = None
+    try:
+        from ..tools.recon import crtsh as _crtsh
+
+        related_subdomains = await _crtsh.list_subdomains(domain, max_results=20)
+    except Exception as e:  # noqa: BLE001
+        _log.debug("enricher.crtsh_failed", domain=domain, error=str(e)[:160])
+
+    try:
+        from ..tools.recon import urlscan as _urlscan
+
+        urlscan_summary = await _urlscan.lookup_domain(domain)
+    except Exception as e:  # noqa: BLE001
+        _log.debug("enricher.urlscan_failed", domain=domain, error=str(e)[:160])
+
     try:
         return Vendor(
             domain=domain,
@@ -254,6 +273,8 @@ async def _llm_merge(
                 "dns": dns_data,
                 "wayback": wayback_data,
                 "open_graph": site_data.get("open_graph"),
+                "related_subdomains": related_subdomains,
+                "urlscan": urlscan_summary,
             },
         )
     except Exception as e:  # noqa: BLE001

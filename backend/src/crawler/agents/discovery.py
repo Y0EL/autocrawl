@@ -196,11 +196,51 @@ def _candidate_to_expo(c: _ExpoCandidate, query: str) -> Expo | None:
         return None
 
 
+async def _scrape_industry_directories() -> list[_ExpoCandidate]:
+    """Tier 6 — direct scrape of curated conference directories.
+
+    These don't go through the LLM extractor because the source data is
+    already structured (name + URL per listing). Returns candidates ready
+    for `_candidate_to_expo`.
+    """
+    settings = get_settings()
+    if not settings.enable_directory_scrape:
+        return []
+
+    from ..tools.scrapers import allconferences, conferenceindex, eventseye
+
+    sources = [
+        ("conferenceindex", conferenceindex.list_expo_candidates),
+        ("allconferences", allconferences.list_expo_candidates),
+        ("eventseye", eventseye.list_expo_candidates),
+    ]
+    raws: list[dict] = []
+    for name, fn in sources:
+        try:
+            batch = await fn()
+            raws.extend(batch)
+            _log.info("discovery.directory_scraped", source=name, candidates=len(batch))
+        except Exception as e:  # noqa: BLE001
+            _log.warning("discovery.directory_failed", source=name, error=str(e)[:200])
+
+    out: list[_ExpoCandidate] = []
+    for r in raws:
+        try:
+            out.append(
+                _ExpoCandidate(
+                    name=r.get("name", ""),
+                    aggregator_url=r.get("aggregator_url"),
+                    official_url=r.get("official_url"),
+                )
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
 async def discover_expos() -> list[Expo]:
     settings = get_settings()
     queries = await expand_seeds()
-    if not queries:
-        return []
 
     sem = asyncio.Semaphore(settings.concurrency().expo_discovery)
     seen_ids: set[str] = set()
@@ -221,13 +261,37 @@ async def discover_expos() -> list[Expo]:
                 local.append(exp)
             return local
 
-    batches = await asyncio.gather(*(_per_query(q) for q in queries))
+    # Run search-driven discovery and directory scrape in parallel so the
+    # whole stage finishes in roughly max(slowest_search, slowest_directory).
+    search_task = asyncio.gather(*(_per_query(q) for q in queries)) if queries else None
+    dir_task = _scrape_industry_directories()
+
+    if search_task is not None:
+        batches, dir_candidates = await asyncio.gather(search_task, dir_task)
+    else:
+        batches = []
+        dir_candidates = await dir_task
+
     for b in batches:
         out.extend(b)
         for e in b:
             expos_discovered_total.labels(source=e.source.value).inc()
 
+    # Convert directory candidates to Expo, dedup by expo_id.
+    for c in dir_candidates:
+        exp = _candidate_to_expo(c, "directory_scrape")
+        if not exp or exp.expo_id in seen_ids:
+            continue
+        seen_ids.add(exp.expo_id)
+        out.append(exp)
+        expos_discovered_total.labels(source=exp.source.value).inc()
+
     if len(out) > settings.max_expos_per_run:
         out = out[: settings.max_expos_per_run]
-    _log.info("discovery.done", expos=len(out), queries=len(queries))
+    _log.info(
+        "discovery.done",
+        expos=len(out),
+        queries=len(queries),
+        from_directory=len(dir_candidates),
+    )
     return out

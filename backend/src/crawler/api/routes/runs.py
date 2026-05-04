@@ -25,6 +25,12 @@ _LOCK_TTL_SECONDS = 60 * 60 * 6  # 6 hours, longer than any real run
 
 _run_lock = asyncio.Lock()
 
+# Reference to the running asyncio task + stop request flag.
+# Held in module scope (single-process API) so the /stop endpoint can target
+# the correct task. Cleared at task completion in finally-block of _execute_run.
+_active_task: asyncio.Task | None = None
+_stop_requested: bool = False
+
 
 class TriggerRequest(BaseModel):
     mode: str = "normal"
@@ -98,21 +104,98 @@ async def list_runs(
 
 @router.get("/active")
 async def get_active_run() -> dict:
-    return {"active": await _get_active_run()}
+    active = await _get_active_run()
+    if active is not None:
+        active["stop_requested"] = _stop_requested
+    return {"active": active}
+
+
+class StopRequest(BaseModel):
+    force: bool = False
+
+
+@router.post("/stop")
+async def stop_run(payload: StopRequest | None = None) -> dict:
+    """Stop the currently running operation.
+
+    Graceful (default): sets a cooperative stop flag; workers skip remaining
+    work at their next boundary check. The state-machine drains naturally
+    (typically <60s). Vendors already enriched stay committed.
+
+    Force: cancels the asyncio task immediately, kills Chromium subprocesses,
+    and aborts mid-flight LLM calls. Faster but messier — in-flight tokens
+    are charged with no return value.
+    """
+    global _active_task, _stop_requested
+    body = payload or StopRequest()
+
+    active = await _get_active_run()
+    if active is None and (_active_task is None or _active_task.done()):
+        raise HTTPException(status_code=404, detail="No active run to stop")
+
+    from ...graph import request_stop
+
+    _stop_requested = True
+
+    if body.force:
+        # Forceful: cancel task, release Redis lock, cleanup resources.
+        if _active_task and not _active_task.done():
+            _active_task.cancel()
+        await _clear_active_run()
+        await _release_run_resources()
+        await _mark_in_flight_aborted("aborted_force")
+        _stop_requested = False
+        return {"status": "stopped", "mode": "force"}
+
+    # Graceful: signal workers; lock + cleanup happens in _execute_run finally.
+    request_stop()
+    return {"status": "stop_requested", "mode": "graceful"}
+
+
+async def _mark_in_flight_aborted(reason: str) -> None:
+    """Reconcile DB state after an abort: close open runs, reset mid-pipeline refs."""
+    try:
+        from ...db.engine import get_sessionmaker
+        from sqlalchemy import text as _text
+
+        sm = get_sessionmaker()
+        async with sm() as session:
+            await session.execute(
+                _text(
+                    "UPDATE runs SET finished_at = NOW(), notes = :reason "
+                    "WHERE finished_at IS NULL"
+                ),
+                {"reason": reason},
+            )
+            await session.execute(
+                _text(
+                    "UPDATE exhibitor_refs SET status = 'extracted', "
+                    "failure_category = NULL, failure_reason = NULL "
+                    "WHERE status IN ('resolving', 'enriching')"
+                )
+            )
+            await session.commit()
+    except Exception as e:  # noqa: BLE001
+        _log.warning("runs.abort_reconcile_failed", error=str(e))
 
 
 async def _execute_run(mode: CrawlMode) -> None:
+    global _stop_requested
     try:
         from ...db.engine import get_sessionmaker
-        from ...graph import run_once
+        from ...graph import is_stop_requested, run_once
 
         _log.info("api.run_started", mode=mode.value)
         summary = await run_once(mode=mode)
+        was_aborted = is_stop_requested()
         _log.info(
             "api.run_finished",
             run_id=summary.run_id,
             enriched=summary.vendors_enriched,
+            aborted=was_aborted,
         )
+        if was_aborted:
+            summary.notes = "aborted_graceful"
 
         try:
             sessionmaker = get_sessionmaker()
@@ -126,11 +209,18 @@ async def _execute_run(mode: CrawlMode) -> None:
                 run_id=summary.run_id,
                 error=str(db_exc),
             )
+        if was_aborted:
+            await _mark_in_flight_aborted("aborted_graceful")
+    except asyncio.CancelledError:
+        # Forceful stop took this path. _stop_run already did the bookkeeping.
+        _log.info("api.run_cancelled_forcefully")
+        raise
     except Exception as exc:
         _log.exception("api.run_failed", error=str(exc))
     finally:
         await _clear_active_run()
         await _release_run_resources()
+        _stop_requested = False
 
 
 async def _release_run_resources() -> None:
@@ -194,5 +284,7 @@ async def trigger_run(payload: TriggerRequest | None = None) -> dict:
                 detail={"message": "A run is already active", "active": current},
             )
 
-    asyncio.create_task(_execute_run(mode))
+    global _active_task, _stop_requested
+    _stop_requested = False
+    _active_task = asyncio.create_task(_execute_run(mode))
     return {"status": "accepted", "active": candidate}

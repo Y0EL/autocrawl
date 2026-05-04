@@ -75,6 +75,8 @@ import {
   faToggleOn,
   faToggleOff,
   faRobot,
+  faUpRightAndDownLeftFromCenter,
+  faDownLeftAndUpRightToCenter,
 } from '@fortawesome/free-solid-svg-icons'
 import {
   faSun as farSun,
@@ -89,13 +91,20 @@ import {
   faYoutube,
   faInstagram,
 } from '@fortawesome/free-brands-svg-icons'
+import maplibregl from 'maplibre-gl'
 import router from '@/router'
 import App from '@/App.vue'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import '@/styles/main.css'
+
+// @antv/l7-maps `Mapbox` provider expects `window.mapboxgl`. MapLibre is a
+// drop-in OSS fork of Mapbox GL JS (same API, no token), so aliasing it here
+// gives L7 a real interactive base map without requiring a paid Mapbox token.
+;(window as unknown as { mapboxgl: typeof maplibregl }).mapboxgl = maplibregl
 
 library.add(
   faGaugeHigh,
@@ -169,6 +178,8 @@ library.add(
   faToggleOn,
   faToggleOff,
   faRobot,
+  faUpRightAndDownLeftFromCenter,
+  faDownLeftAndUpRightToCenter,
   farSun,
   farMoon,
   farFile,

@@ -214,9 +214,38 @@
       rgba(255, 184, 0, 0.06) 6px
     );
   }
+
+  .hud-context-item {
+    @apply block w-full px-3 py-1.5 text-left font-mono text-2xs uppercase tracking-ops text-base-200 transition-colors hover:bg-accent-500/15 hover:text-accent-300;
+  }
+
+  .hud-map-vignette {
+    background: radial-gradient(
+      ellipse at center,
+      transparent 55%,
+      rgba(6, 8, 13, 0.45) 90%,
+      rgba(6, 8, 13, 0.75) 100%
+    );
+  }
+
+  .hud-map-btn {
+    @apply pointer-events-auto flex h-8 w-8 items-center justify-center border border-cyan-400/30 bg-[#06080d]/85 text-cyan-300 backdrop-blur transition-colors hover:border-cyan-400/60 hover:bg-cyan-500/15 hover:text-cyan-100 focus:outline-none focus:ring-1 focus:ring-cyan-400;
+  }
 }
 
 @layer utilities {
+  /* Hide @antv/l7 watermark/attribution. Class names vary across versions
+     so we cast a wide net. */
+  .l7-control-logo,
+  .l7-control-logoControl,
+  .l7-logo,
+  [class*='l7-logo'],
+  [class*='logoControl'],
+  .amap-logo,
+  .amap-copyright {
+    display: none !important;
+  }
+
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }

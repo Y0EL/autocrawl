@@ -11,7 +11,11 @@ from .base import SearchHit
 _log = get_logger(__name__)
 
 
-async def search(query: str, *, max_results: int = 20, region: str = "wt-wt") -> list[SearchHit]:
+async def search(query: str, *, max_results: int = 20, region: str = "us-en") -> list[SearchHit]:
+    # NOTE region is deliberately not "wt-wt" because DDGS' internal Wikipedia
+    # backend then tries `https://wt.wikipedia.org/...` which doesn't exist
+    # and spams `Error in engine wikipedia: ConnectError`. We keep our own
+    # Wikipedia direct-API call (tools/search/wikipedia.py) for that source.
     def _run() -> list[SearchHit]:
         try:
             from ddgs import DDGS  # type: ignore

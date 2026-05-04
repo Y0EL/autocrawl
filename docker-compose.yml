@@ -26,6 +26,44 @@ services:
       NLLB_MODEL_PATH: /opt/nllb_ct2
       NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
       TARGET_LANGUAGE: id
+      ENABLE_OPENSERP: "true"
+      OPENSERP_URL: http://openserp:7000
+      OPENSERP_ENGINES: "baidu"
+      OPENSERP_MAX_RETRIES: "1"
+      ENABLE_SEARXNG: "true"
+      SEARXNG_URL: http://searxng:8080
+      ENABLE_REDDIT: "true"
+      ENABLE_HACKERNEWS: "true"
+      ENABLE_GITHUB_SEARCH: "true"
+      ENABLE_ARXIV: "true"
+      ENABLE_OPENALEX: "true"
+      ENABLE_SEMANTIC_SCHOLAR: "true"
+      ENABLE_INTERNET_ARCHIVE: "true"
+      ENABLE_WAYBACK_CDX: "true"
+      ENABLE_JINA_READER: "true"
+      ENABLE_DIRECTORY_SCRAPE: "true"
+      ENABLE_CRTSH: "true"
+      ENABLE_TAVILY: ${ENABLE_TAVILY:-false}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      ENABLE_BRAVE: ${ENABLE_BRAVE:-false}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      ENABLE_BING: ${ENABLE_BING:-false}
+      BING_API_KEY: ${BING_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      ENABLE_URLSCAN: ${ENABLE_URLSCAN:-false}
+      URLSCAN_API_KEY: ${URLSCAN_API_KEY:-}
+      # LLM dan embedding sama-sama lewat Ollama lokal. Granite 4.1 chat
+      # plus granite-embedding 278m. Untuk switch ke Groq atau OpenAI,
+      # ubah LLM_PROVIDER lewat .env.
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://ollama:11434
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://ollama:11434
+      OPENAI_MODEL_HEAVY: granite4.1:3b
+      OPENAI_MODEL_LIGHT: granite4.1:3b
+      OPENAI_EMBEDDING_MODEL: granite-embedding:278m
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: https://api.groq.com/openai/v1
     depends_on:
       redis:
         condition: service_healthy
@@ -35,6 +73,10 @@ services:
         condition: service_started
       autocrawl-db:
         condition: service_healthy
+      openserp:
+        condition: service_started
+      ollama:
+        condition: service_started
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -60,10 +102,50 @@ services:
       NLLB_MODEL_PATH: /opt/nllb_ct2
       NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
       TARGET_LANGUAGE: id
+      ENABLE_OPENSERP: "true"
+      OPENSERP_URL: http://openserp:7000
+      OPENSERP_ENGINES: "baidu"
+      OPENSERP_MAX_RETRIES: "1"
+      ENABLE_SEARXNG: "true"
+      SEARXNG_URL: http://searxng:8080
+      ENABLE_REDDIT: "true"
+      ENABLE_HACKERNEWS: "true"
+      ENABLE_GITHUB_SEARCH: "true"
+      ENABLE_ARXIV: "true"
+      ENABLE_OPENALEX: "true"
+      ENABLE_SEMANTIC_SCHOLAR: "true"
+      ENABLE_INTERNET_ARCHIVE: "true"
+      ENABLE_WAYBACK_CDX: "true"
+      ENABLE_JINA_READER: "true"
+      ENABLE_DIRECTORY_SCRAPE: "true"
+      ENABLE_CRTSH: "true"
+      ENABLE_TAVILY: ${ENABLE_TAVILY:-false}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      ENABLE_BRAVE: ${ENABLE_BRAVE:-false}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      ENABLE_BING: ${ENABLE_BING:-false}
+      BING_API_KEY: ${BING_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      ENABLE_URLSCAN: ${ENABLE_URLSCAN:-false}
+      URLSCAN_API_KEY: ${URLSCAN_API_KEY:-}
+      # LLM dan embedding sama-sama lewat Ollama lokal. Granite 4.1 chat
+      # plus granite-embedding 278m. Untuk switch ke Groq atau OpenAI,
+      # ubah LLM_PROVIDER lewat .env.
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://ollama:11434
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://ollama:11434
+      OPENAI_MODEL_HEAVY: granite4.1:3b
+      OPENAI_MODEL_LIGHT: granite4.1:3b
+      OPENAI_EMBEDDING_MODEL: granite-embedding:278m
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: https://api.groq.com/openai/v1
     depends_on:
       autocrawl-db:
         condition: service_healthy
       crawler:
+        condition: service_started
+      ollama:
         condition: service_started
     volumes:
       - ./data:/app/data
@@ -148,6 +230,69 @@ services:
     ports:
       - "8191:8191"
 
+  openserp:
+    image: karust/openserp:latest
+    container_name: autocrawl-openserp
+    restart: unless-stopped
+    ports:
+      - "7000:7000"
+    # OpenSERP is a Cobra CLI. The image entrypoint is just `openserp` so we
+    # have to supply the subcommand. `serve` runs the HTTP API for all engines.
+    # Bind 0.0.0.0 so the crawler container can reach it; default 127.0.0.1
+    # would only listen inside the container itself.
+    command: ["serve", "--host", "0.0.0.0", "--port", "7000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:7000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    networks: [crawl_net]
+
+  ollama:
+    # Local LLM runtime — replaces OpenAI cloud entirely.
+    # Models auto-pulled by the entrypoint script on first run.
+    image: ollama/ollama:latest
+    container_name: autocrawl-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      # Keep models loaded forever (no cold-start cost between requests).
+      OLLAMA_KEEP_ALIVE: "-1"
+      # Two concurrent requests max — granite 3B fits 1 GPU; more would queue/swap.
+      OLLAMA_NUM_PARALLEL: "2"
+      # LLM + embedding model both stay resident.
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      # Listen on all interfaces so the crawler/api containers can reach us.
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./backend/ops/ollama_init.sh:/ollama_init.sh:ro
+    entrypoint: ["/bin/sh", "/ollama_init.sh"]
+    healthcheck:
+      # Healthy once both models are pulled and the API answers.
+      test: ["CMD", "sh", "-c", "ollama list | grep -q granite4.1 && ollama list | grep -q granite-embedding"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 30s
+    networks: [crawl_net]
+    # NVIDIA GPU passthrough. Diaktifkan karena host punya RTX 5050 8 GB.
+    # Granite 3B muat di 4 GB VRAM, sisa untuk KV cache plus second model
+    # (granite-embedding 950 MB).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   # ---- Observability ----
   langfuse-db:
     image: postgres:16-alpine
@@ -226,3 +371,5 @@ volumes:
   prom_data:
   grafana_data:
   autocrawl_pgdata:
+  ollama_data:
+  searxng_data:

@@ -45,8 +45,14 @@ const activeQuery = useQuery({
 })
 
 const isRunning = computed(() => Boolean(activeQuery.data.value?.active))
+const stopRequested = computed(() => {
+  const a = activeQuery.data.value?.active as { stop_requested?: boolean } | null | undefined
+  return Boolean(a?.stop_requested)
+})
 const submitting = ref(false)
+const stopping = ref(false)
 const showModeMenu = ref(false)
+const showForceModal = ref(false)
 
 async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
   showModeMenu.value = false
@@ -80,11 +86,51 @@ async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
     submitting.value = false
   }
 }
+
+async function stopRun(force: boolean) {
+  if (stopping.value) return
+  stopping.value = true
+  try {
+    const res = await api.stopRun(force)
+    if (res.mode === 'force') {
+      toast.success('Operasi dihentikan paksa', {
+        description: 'Subprocess di-kill, lock dilepas. Trigger run baru sudah bisa.',
+      })
+    } else {
+      toast.info('Permintaan stop diterima', {
+        description: 'Worker drain berlanjut. Operasi akan selesai dalam beberapa puluh detik.',
+      })
+    }
+    queryClient.invalidateQueries({ queryKey: ['runs', 'active'] })
+    queryClient.invalidateQueries({ queryKey: ['runs'] })
+    queryClient.invalidateQueries({ queryKey: ['exhibitor-refs'] })
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: { detail?: string } } }
+    if (e.response?.status === 404) {
+      toast.warning('Tidak ada operasi aktif untuk dihentikan')
+    } else {
+      toast.error('Gagal menghentikan operasi', {
+        description: e.response?.data?.detail ?? 'Cek log API container.',
+      })
+    }
+  } finally {
+    stopping.value = false
+    showForceModal.value = false
+  }
+}
+
+function onStopClick(e: MouseEvent) {
+  if (e.shiftKey) {
+    showForceModal.value = true
+    return
+  }
+  void stopRun(false)
+}
 </script>
 
 <template>
   <header
-    class="relative z-10 flex h-12 shrink-0 items-center justify-between border-b border-base-200 bg-white px-4 dark:border-base-700 dark:bg-base-900"
+    class="relative z-50 flex h-12 shrink-0 items-center justify-between border-b border-base-200 bg-white px-4 dark:border-base-700 dark:bg-base-900"
   >
     <div class="flex items-center gap-3">
       <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
@@ -115,11 +161,31 @@ async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
 
     <div class="flex items-center gap-2">
       <HudStatusPill
-        v-if="isRunning"
+        v-if="isRunning && !stopRequested"
         tone="warn"
         label="OPS RUNNING"
         :pulse="true"
       />
+      <HudStatusPill
+        v-else-if="stopRequested"
+        tone="crit"
+        label="STOPPING"
+        :pulse="true"
+      />
+
+      <button
+        v-if="isRunning"
+        class="hud-btn-danger h-8 px-3"
+        :disabled="stopping || stopRequested"
+        title="Klik = graceful drain · Shift+klik = stop paksa"
+        @click="onStopClick"
+      >
+        <FaIcon
+          :icon="['fas', stopping ? 'circle-notch' : 'stop']"
+          :class="stopping ? 'animate-spin text-2xs' : 'text-2xs'"
+        />
+        <span>{{ stopRequested ? 'STOPPING…' : 'STOP' }}</span>
+      </button>
 
       <div class="relative">
         <div class="flex">
@@ -154,7 +220,7 @@ async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
         >
           <div
             v-if="showModeMenu"
-            class="absolute right-0 top-9 z-20 w-48 border border-base-200 bg-white shadow-xl dark:border-base-700 dark:bg-base-900"
+            class="absolute right-0 top-9 z-[55] w-48 border border-base-200 bg-white shadow-xl dark:border-base-700 dark:bg-base-900"
           >
             <button
               class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-accent-500/10"
@@ -182,6 +248,50 @@ async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
       </div>
 
       <HudThemeToggle />
+    </div>
+
+    <!-- Force-stop confirmation modal -->
+    <div
+      v-if="showForceModal"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+      @click.self="showForceModal = false"
+    >
+      <div class="hud-panel w-full max-w-md border-crit-500/50">
+        <div class="hud-panel-head border-crit-500/40 bg-crit-500/10">
+          <div class="flex items-center gap-2">
+            <FaIcon :icon="['fas', 'triangle-exclamation']" class="text-crit-400" />
+            <h2 class="hud-panel-title text-crit-300">STOP PAKSA — KONFIRMASI</h2>
+          </div>
+        </div>
+        <div class="hud-panel-body flex flex-col gap-3">
+          <p class="font-mono text-xs leading-relaxed text-base-300">
+            Stop paksa akan:
+          </p>
+          <ul class="flex flex-col gap-1 font-mono text-2xs text-base-300">
+            <li>• Cancel asyncio task langsung (~5 detik)</li>
+            <li>• Kill Chromium subprocess yang aktif</li>
+            <li>• Abort LLM call mid-flight (token tetap kebakar)</li>
+            <li>• Vendor mid-enrich tidak akan ke-commit ke DB</li>
+          </ul>
+          <p class="font-mono text-2xs leading-relaxed text-warn-400">
+            Pertimbangkan klik biasa (graceful) kalau gak urgent.
+          </p>
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button class="hud-btn-ghost" type="button" @click="showForceModal = false">
+              Batal
+            </button>
+            <button
+              class="hud-btn-danger"
+              type="button"
+              :disabled="stopping"
+              @click="stopRun(true)"
+            >
+              <FaIcon :icon="['fas', stopping ? 'circle-notch' : 'stop']" :class="stopping ? 'animate-spin text-2xs' : 'text-2xs'" />
+              STOP PAKSA
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </header>
 </template>

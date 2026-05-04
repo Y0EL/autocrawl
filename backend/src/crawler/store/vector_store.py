@@ -22,6 +22,37 @@ _LOCK = asyncio.Lock()
 _COLLECTION_NAME = "vendors"
 
 
+async def _probe_dim_mismatch(client: Any, coll: Any) -> bool:
+    """Returns True iff the collection has rows with a vector dimension that
+    doesn't match the active embedding model. Used to auto-wipe stale Chroma
+    state when we switch embedding providers (e.g. OpenAI 1536-dim → granite
+    768-dim)."""
+    try:
+        count = await asyncio.to_thread(coll.count)
+        if count == 0:
+            return False
+        # Compute a probe embedding with the CURRENT model and compare dim.
+        probe = await embed_one("dim probe")
+        current_dim = len(probe)
+        sample = await asyncio.to_thread(coll.peek, 1)
+        existing = sample.get("embeddings") or []
+        if not existing or not existing[0]:
+            return False
+        existing_dim = len(existing[0])
+        if existing_dim != current_dim:
+            _log.warning(
+                "chroma.dim_mismatch",
+                existing_dim=existing_dim,
+                current_dim=current_dim,
+                action="wipe_and_recreate",
+            )
+            return True
+        return False
+    except Exception as e:  # noqa: BLE001
+        _log.debug("chroma.probe_failed", error=str(e))
+        return False
+
+
 async def _get_collection() -> Any:
     global _CLIENT, _COLLECTION
     async with _LOCK:
@@ -39,7 +70,21 @@ async def _get_collection() -> Any:
                 persist_dir = settings.data_dir / "vector_db"
                 persist_dir.mkdir(parents=True, exist_ok=True)
                 _CLIENT = chromadb.PersistentClient(path=str(persist_dir))
-            _COLLECTION = _CLIENT.get_or_create_collection(_COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+            _COLLECTION = _CLIENT.get_or_create_collection(
+                _COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+            )
+
+            # Auto-recover from embedding dim mismatch (provider switch).
+            if await _probe_dim_mismatch(_CLIENT, _COLLECTION):
+                try:
+                    _CLIENT.delete_collection(_COLLECTION_NAME)
+                except Exception as e:  # noqa: BLE001
+                    _log.warning("chroma.delete_failed", error=str(e))
+                _COLLECTION = _CLIENT.get_or_create_collection(
+                    _COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+                )
+                _log.info("chroma.recreated_with_new_dim")
+
             return _COLLECTION
         except Exception as e:  # noqa: BLE001
             _log.error("chroma.unavailable", error=str(e))

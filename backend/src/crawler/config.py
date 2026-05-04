@@ -47,16 +47,27 @@ class ConcurrencyCaps(BaseSettings):
         return self  # normal
 
     def for_provider(self, provider: str) -> "ConcurrencyCaps":
-        """When using Ollama on a single consumer GPU, throttle stages that
-        burst LLM calls so the GPU isn't overwhelmed (timeouts, queue stalls)."""
-        if provider != "ollama":
-            return self
-        return ConcurrencyCaps(
-            EXPO_DISCOVERY_CONCURRENCY=min(self.expo_discovery, 2),
-            EXHIBITOR_EXTRACTION_CONCURRENCY=self.exhibitor_extraction,
-            VENDOR_RESOLUTION_CONCURRENCY=min(self.vendor_resolution, 8),
-            ENRICHMENT_CONCURRENCY=min(self.enrichment, 8),
-        )
+        """Throttle per provider so we don't blow rate limits or overwhelm hardware.
+
+        Ollama on a single consumer GPU times out under burst LLM calls.
+        Groq free tier caps RPM (30 for llama-3.1-8b-instant, lower for 70B),
+        so we cap stages that fan out wide.
+        """
+        if provider == "ollama":
+            return ConcurrencyCaps(
+                EXPO_DISCOVERY_CONCURRENCY=min(self.expo_discovery, 2),
+                EXHIBITOR_EXTRACTION_CONCURRENCY=self.exhibitor_extraction,
+                VENDOR_RESOLUTION_CONCURRENCY=min(self.vendor_resolution, 8),
+                ENRICHMENT_CONCURRENCY=min(self.enrichment, 8),
+            )
+        if provider == "groq":
+            return ConcurrencyCaps(
+                EXPO_DISCOVERY_CONCURRENCY=min(self.expo_discovery, 4),
+                EXHIBITOR_EXTRACTION_CONCURRENCY=min(self.exhibitor_extraction, 10),
+                VENDOR_RESOLUTION_CONCURRENCY=min(self.vendor_resolution, 8),
+                ENRICHMENT_CONCURRENCY=min(self.enrichment, 6),
+            )
+        return self
 
 
 class Settings(BaseSettings):
@@ -67,16 +78,22 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # === REQUIRED keys (the only two paid services) ===
+    # === API keys (all optional; default stack runs fully local via Ollama) ===
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     firecrawl_api_key: str = Field(default="", alias="FIRECRAWL_API_KEY")
+    groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
 
     # === LLM provider switch ===
-    # `openai` (default) → api.openai.com, billed.
-    # `ollama`           → self-hosted via host.docker.internal:11434, free + unlimited.
-    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
+    # `groq`   (default) → api.groq.com, free tier ~14400 req/day, LPU-fast,
+    #                     OpenAI compatible. Default model llama-3.1-8b-instant.
+    # `ollama`           → self-hosted Ollama in the compose stack at
+    #                     http://ollama:11434, free, unlimited, fully local.
+    #                     Default model granite4.1:3b (IBM, Apache 2.0).
+    # `openai`           → api.openai.com, billed (kept as escape hatch).
+    llm_provider: str = Field(default="groq", alias="LLM_PROVIDER")
     llm_base_url: str = Field(default="", alias="LLM_BASE_URL")  # override; empty = use provider default
-    embedding_provider: str = Field(default="openai", alias="EMBEDDING_PROVIDER")
+    groq_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="GROQ_BASE_URL")
+    embedding_provider: str = Field(default="ollama", alias="EMBEDDING_PROVIDER")
     embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
 
     # === Self-hosted services ===
@@ -104,15 +121,69 @@ class Settings(BaseSettings):
     browser_pool_size: int = Field(default=20, alias="BROWSER_POOL_SIZE")
     browser_recycle_after: int = Field(default=50, alias="BROWSER_RECYCLE_AFTER")
 
-    # === OpenAI models ===
-    openai_model_heavy: str = Field(default="gpt-4o", alias="OPENAI_MODEL_HEAVY")
-    openai_model_light: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL_LIGHT")
-    openai_embedding_model: str = Field(default="text-embedding-3-small", alias="OPENAI_EMBEDDING_MODEL")
+    # === Model names ===
+    # Defaults assume LLM_PROVIDER=groq + EMBEDDING_PROVIDER=ollama.
+    # Override via env if you switch providers.
+    #
+    # Groq production model: llama-3.3-70b-versatile (used for both heavy and
+    # light to keep config simple and survive Groq deprecating smaller models).
+    # Ollama suggestions: granite4.1:3b for chat, granite-embedding:278m for vectors.
+    # OpenAI suggestions: gpt-4o-mini for light, gpt-4o for heavy.
+    openai_model_heavy: str = Field(default="llama-3.3-70b-versatile", alias="OPENAI_MODEL_HEAVY")
+    openai_model_light: str = Field(default="llama-3.3-70b-versatile", alias="OPENAI_MODEL_LIGHT")
+    openai_embedding_model: str = Field(default="granite-embedding:278m", alias="OPENAI_EMBEDDING_MODEL")
 
     # === Politeness & quotas ===
     per_domain_rps: float = Field(default=1.0, alias="PER_DOMAIN_RPS")
     global_request_timeout_seconds: int = Field(default=60, alias="GLOBAL_REQUEST_TIMEOUT_SECONDS")
     firecrawl_credit_threshold_pct: float = Field(default=10.0, alias="FIRECRAWL_CREDIT_THRESHOLD_PCT")
+
+    # === OpenSERP (self-hosted SERP scraper) ===
+    enable_openserp: bool = Field(default=False, alias="ENABLE_OPENSERP")
+    openserp_url: str = Field(default="http://openserp:7000", alias="OPENSERP_URL")
+    openserp_engines: str = Field(default="google,bing,yandex,baidu", alias="OPENSERP_ENGINES")
+    openserp_timeout_seconds: int = Field(default=30, alias="OPENSERP_TIMEOUT_SECONDS")
+    openserp_max_retries: int = Field(default=2, alias="OPENSERP_MAX_RETRIES")
+
+    # === SearXNG (self-hosted meta search 70+ engine) ===
+    enable_searxng: bool = Field(default=True, alias="ENABLE_SEARXNG")
+    searxng_url: str = Field(default="http://searxng:8080", alias="SEARXNG_URL")
+    searxng_timeout_seconds: int = Field(default=20, alias="SEARXNG_TIMEOUT_SECONDS")
+
+    # === Free-tier search APIs (key opsional, default off) ===
+    enable_tavily: bool = Field(default=False, alias="ENABLE_TAVILY")
+    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
+    enable_brave: bool = Field(default=False, alias="ENABLE_BRAVE")
+    brave_api_key: str = Field(default="", alias="BRAVE_API_KEY")
+    enable_bing: bool = Field(default=False, alias="ENABLE_BING")
+    bing_api_key: str = Field(default="", alias="BING_API_KEY")
+
+    # === Niche public APIs (no auth, default on) ===
+    enable_reddit: bool = Field(default=True, alias="ENABLE_REDDIT")
+    reddit_subreddits: str = Field(
+        default="MilitaryHardware,cybersecurity,LessCredibleDefence,geopolitics,defense,LawEnforcement",
+        alias="REDDIT_SUBREDDITS",
+    )
+    enable_hackernews: bool = Field(default=True, alias="ENABLE_HACKERNEWS")
+    enable_github_search: bool = Field(default=True, alias="ENABLE_GITHUB_SEARCH")
+    github_token: str = Field(default="", alias="GITHUB_TOKEN")
+    enable_arxiv: bool = Field(default=True, alias="ENABLE_ARXIV")
+    enable_openalex: bool = Field(default=True, alias="ENABLE_OPENALEX")
+    enable_semantic_scholar: bool = Field(default=True, alias="ENABLE_SEMANTIC_SCHOLAR")
+    enable_internet_archive: bool = Field(default=True, alias="ENABLE_INTERNET_ARCHIVE")
+    enable_wayback_cdx: bool = Field(default=True, alias="ENABLE_WAYBACK_CDX")
+
+    # === Jina Reader (free clean-markdown fetcher) ===
+    enable_jina_reader: bool = Field(default=True, alias="ENABLE_JINA_READER")
+    jina_reader_url: str = Field(default="https://r.jina.ai", alias="JINA_READER_URL")
+
+    # === Industry directory direct scrape ===
+    enable_directory_scrape: bool = Field(default=True, alias="ENABLE_DIRECTORY_SCRAPE")
+
+    # === Recon (passive intel for vendor enrichment) ===
+    enable_crtsh: bool = Field(default=True, alias="ENABLE_CRTSH")
+    enable_urlscan: bool = Field(default=False, alias="ENABLE_URLSCAN")
+    urlscan_api_key: str = Field(default="", alias="URLSCAN_API_KEY")
 
     # === Scraper backend toggles ===
     enable_firecrawl: bool = Field(default=False, alias="ENABLE_FIRECRAWL")

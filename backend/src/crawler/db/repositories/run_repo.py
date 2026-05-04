@@ -28,6 +28,7 @@ def _to_orm_dict(r: RunSummary) -> dict[str, Any]:
         "exhibitors_enrich_failed": r.exhibitors_enrich_failed,
         "exhibitors_validation_rejected": r.exhibitors_validation_rejected,
         "exhibitors_scope_rejected": r.exhibitors_scope_rejected,
+        "notes": r.notes,
     }
 
 
@@ -45,6 +46,7 @@ def orm_to_dict(orm: RunORM) -> dict[str, Any]:
         "failures": orm.failures,
         "firecrawl_credits_used": orm.firecrawl_credits_used,
         "openai_tokens_used": orm.openai_tokens_used,
+        "notes": orm.notes,
         "exhibitors_resolve_failed": getattr(orm, "exhibitors_resolve_failed", 0) or 0,
         "exhibitors_enrich_failed": getattr(orm, "exhibitors_enrich_failed", 0) or 0,
         "exhibitors_validation_rejected": getattr(orm, "exhibitors_validation_rejected", 0) or 0,

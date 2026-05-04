@@ -285,6 +285,25 @@ export interface OrchestratorActiveRun {
   mode: string
   status: string
   duration_seconds?: number
+  stop_requested?: boolean
+}
+
+export interface ExpoCountryDetail {
+  country: string
+  expo_count: number
+  vendor_count: number
+  top_expos: {
+    expo_id: string
+    name: string
+    start_date: string | null
+    location: string | null
+  }[]
+  top_vendors: {
+    domain: string | null
+    company_name: string
+    industries: string[]
+    confidence_score: number
+  }[]
 }
 
 export interface OrchestratorStageState {

@@ -252,3 +252,4 @@ class RunSummary(BaseModel):
     exhibitors_enrich_failed: int = 0
     exhibitors_validation_rejected: int = 0
     exhibitors_scope_rejected: int = 0
+    notes: str | None = None

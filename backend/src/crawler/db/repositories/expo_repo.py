@@ -153,3 +153,65 @@ async def country_breakdown(session: AsyncSession) -> list[dict[str, Any]]:
         )
     out.sort(key=lambda r: (-int(r["vendor_count"]), -int(r["expo_count"]), str(r["country"])))
     return out
+
+
+async def country_detail(session: AsyncSession, *, country: str) -> dict[str, Any]:
+    """Detail for one country: counts, top expos, top vendors.
+
+    Powers the world-map side panel. Country is matched by the messy
+    `expos.country` column verbatim — caller is expected to send the canonical
+    name as stored in the DB (the frontend country_resolver already maps
+    aliases to a canonical form).
+    """
+    expo_stmt = (
+        select(ExpoORM)
+        .where(ExpoORM.country == country)
+        .order_by(desc(ExpoORM.discovered_at))
+        .limit(5)
+    )
+    top_expos_orm = list((await session.execute(expo_stmt)).scalars().all())
+
+    expo_count_stmt = select(func.count()).select_from(ExpoORM).where(ExpoORM.country == country)
+    expo_count = int((await session.execute(expo_count_stmt)).scalar_one())
+
+    vendor_stmt = (
+        select(VendorORM)
+        .join(ExpoVendorORM, ExpoVendorORM.vendor_domain == VendorORM.domain)
+        .join(ExpoORM, ExpoORM.expo_id == ExpoVendorORM.expo_id)
+        .where(ExpoORM.country == country)
+        .order_by(desc(VendorORM.confidence_score))
+        .limit(3)
+    )
+    top_vendors_orm = list((await session.execute(vendor_stmt)).scalars().all())
+
+    vendor_count_stmt = (
+        select(func.count(func.distinct(ExpoVendorORM.vendor_domain)))
+        .select_from(ExpoVendorORM)
+        .join(ExpoORM, ExpoORM.expo_id == ExpoVendorORM.expo_id)
+        .where(ExpoORM.country == country)
+    )
+    vendor_count = int((await session.execute(vendor_count_stmt)).scalar_one())
+
+    return {
+        "country": country,
+        "expo_count": expo_count,
+        "vendor_count": vendor_count,
+        "top_expos": [
+            {
+                "expo_id": e.expo_id,
+                "name": e.name,
+                "start_date": e.start_date.isoformat() if e.start_date else None,
+                "location": e.location,
+            }
+            for e in top_expos_orm
+        ],
+        "top_vendors": [
+            {
+                "domain": v.domain,
+                "company_name": v.company_name,
+                "industries": list(v.industries or [])[:3],
+                "confidence_score": float(v.confidence_score or 0),
+            }
+            for v in top_vendors_orm
+        ],
+    }

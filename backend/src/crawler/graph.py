@@ -57,6 +57,25 @@ from .state import (
 from .store.json_reporter import write_run_summary
 
 
+# Module-level cooperative cancellation flag. Set by api/routes/runs.py when
+# the user clicks STOP (graceful). Workers check this at boundary to short-circuit
+# the rest of their work, allowing the LangGraph state-machine to drain naturally.
+_should_stop: asyncio.Event = asyncio.Event()
+
+
+def request_stop() -> None:
+    """Signal workers to skip remaining work. Idempotent."""
+    _should_stop.set()
+
+
+def is_stop_requested() -> bool:
+    return _should_stop.is_set()
+
+
+def _reset_stop_flag() -> None:
+    _should_stop.clear()
+
+
 async def _persist_refs_audit(refs: list[ExhibitorRef], *, run_id: str) -> None:
     """Persist extracted refs to exhibitor_refs table. Failure here MUST NOT break the pipeline."""
     if not refs:
@@ -138,6 +157,8 @@ async def _worker_extract(state: WorkerExpoState) -> dict:
     sem = _stage_sem("extraction", settings.concurrency().exhibitor_extraction)
     expo: Expo = state["expo"]
     run_id = state.get("run_id") or ""
+    if _should_stop.is_set():
+        return {"failures": [FailureRecord(where="extraction", error="aborted_by_user")]}
     active_workers.labels(stage="extraction").inc()
     await emit_event(
         node="worker_extract",
@@ -147,6 +168,8 @@ async def _worker_extract(state: WorkerExpoState) -> dict:
     )
     try:
         async with sem:
+            if _should_stop.is_set():
+                return {"failures": [FailureRecord(where="extraction", error="aborted_by_user")]}
             refs = await extractor_agent.extract_exhibitors(expo)
             await _persist_refs_audit(refs, run_id=run_id)
             await emit_event(
@@ -177,6 +200,8 @@ async def _worker_resolve(state: WorkerExhibitorState) -> dict:
     sem = _stage_sem("resolution", settings.concurrency().vendor_resolution)
     ref: ExhibitorRef = state["exhibitor"]
     run_id = state.get("run_id") or ""
+    if _should_stop.is_set():
+        return {"failures": [FailureRecord(where="resolution", error="aborted_by_user")]}
     active_workers.labels(stage="resolution").inc()
     await emit_event(
         node="worker_resolve",
@@ -186,6 +211,8 @@ async def _worker_resolve(state: WorkerExhibitorState) -> dict:
     )
     try:
         async with sem:
+            if _should_stop.is_set():
+                return {"failures": [FailureRecord(where="resolution", error="aborted_by_user")]}
             last_err: str | None = None
             try:
                 if ref.raw_url:
@@ -267,6 +294,8 @@ async def _worker_pdf_extract(state: WorkerExpoState) -> dict:
     sem = _stage_sem("pdf_extraction", settings.pdf_extraction_concurrency)
     expo: Expo = state["expo"]
     run_id = state.get("run_id") or ""
+    if _should_stop.is_set():
+        return {}
     active_workers.labels(stage="pdf_extraction").inc()
     await emit_event(
         node="worker_pdf_extract",
@@ -276,6 +305,8 @@ async def _worker_pdf_extract(state: WorkerExpoState) -> dict:
     )
     try:
         async with sem:
+            if _should_stop.is_set():
+                return {}
             from .tools.scrapers import pdf_extractor as pdf_extractor_mod
 
             pdf_urls = await pdf_finder_agent.find_pdfs_for_expo(expo)
@@ -323,6 +354,8 @@ async def _worker_enrich(state: WorkerVendorState) -> dict:
     sem = _stage_sem("enrichment", settings.concurrency().enrichment)
     vurl: VendorURL = state["vendor_url"]
     run_id = state.get("run_id") or ""
+    if _should_stop.is_set():
+        return {"failures": [FailureRecord(where="enrichment", error="aborted_by_user", url=str(vurl.canonical_url))]}
     active_workers.labels(stage="enrichment").inc()
     await emit_event(
         node="worker_enrich",
@@ -332,6 +365,8 @@ async def _worker_enrich(state: WorkerVendorState) -> dict:
     )
     try:
         async with sem:
+            if _should_stop.is_set():
+                return {"failures": [FailureRecord(where="enrichment", error="aborted_by_user", url=str(vurl.canonical_url))]}
             is_dup = await dedup_agent.check_and_merge(vurl)
             if is_dup:
                 await reporter_agent.merge_existing_with_expo(vurl.domain, vurl.expo_id)
@@ -592,6 +627,8 @@ async def run_once(*, mode: CrawlMode | None = None) -> RunSummary:
     """Single end-to-end run. Returns the run summary."""
     settings = get_settings()
     selected_mode = mode or settings.mode
+    # Clear any leftover stop flag from a previous aborted run.
+    _reset_stop_flag()
     started_at = datetime.now(timezone.utc)
     run_id = f"{started_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
 
