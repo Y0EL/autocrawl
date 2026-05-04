@@ -181,9 +181,10 @@ library.add(
 )
 
 async function bootstrap() {
-  if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS === 'true') {
-    const { startMocks } = await import('@/mocks/start')
-    await startMocks()
+  // No mock layer — every request hits the real FastAPI backend.
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('[autocrawl] LIVE mode — backend at', import.meta.env.VITE_API_BASE ?? '/api')
   }
 
   const app = createApp(App)

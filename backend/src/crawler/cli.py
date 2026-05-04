@@ -286,7 +286,18 @@ def db_import_json() -> None:
                     if isinstance(finished, str):
                         data["finished_at"] = datetime.fromisoformat(finished.replace("Z", "+00:00"))
                     if data.get("started_at") is None:
-                        data["started_at"] = datetime.now(timezone.utc)
+                        # legacy daily summaries (summary_YYYY-MM-DD.json) carry a
+                        # `date` field instead of started_at; promote it.
+                        date_str = data.get("date")
+                        if isinstance(date_str, str):
+                            data["started_at"] = datetime.fromisoformat(date_str + "T00:00:00+00:00")
+                        else:
+                            data["started_at"] = datetime.now(timezone.utc)
+                    if not data.get("run_id"):
+                        # synthesize a stable id from filename + started_at so the
+                        # row is idempotent across re-imports.
+                        ts = data["started_at"]
+                        data["run_id"] = f"legacy-{path.stem}-{ts.strftime('%Y%m%d')}"
                     summary = RunSummary.model_validate(data)
                     await run_repo.upsert(session, summary)
                     await session.commit()

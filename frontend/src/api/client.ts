@@ -4,6 +4,7 @@ import type {
   ErrorSummaryResponse,
   ExhibitorRefRow,
   Expo,
+  ExpoCountryStat,
   HealthResponse,
   IndustryStat,
   OrchestratorCurrent,
@@ -89,6 +90,8 @@ export const api = {
       http.get<TimelinePoint[]>('/stats/timeline', { params: { days } }).then((r) => r.data),
     runsMode: (days = 30) =>
       http.get<RunModeStat[]>('/stats/runs-mode', { params: { days } }).then((r) => r.data),
+    expoCountries: () =>
+      http.get<ExpoCountryStat[]>('/stats/expo-countries').then((r) => r.data),
   },
   health: () => http.get<HealthResponse>('/health').then((r) => r.data),
   settings: () => http.get<SettingsResponse>('/settings').then((r) => r.data),

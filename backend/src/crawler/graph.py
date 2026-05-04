@@ -592,7 +592,8 @@ async def run_once(*, mode: CrawlMode | None = None) -> RunSummary:
     """Single end-to-end run. Returns the run summary."""
     settings = get_settings()
     selected_mode = mode or settings.mode
-    run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    started_at = datetime.now(timezone.utc)
+    run_id = f"{started_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
 
     # Pre-warm the LLM (no-op for OpenAI; loads Ollama models into VRAM).
     from .tools.llm.openai_client import warmup as llm_warmup
@@ -638,7 +639,7 @@ async def run_once(*, mode: CrawlMode | None = None) -> RunSummary:
 
     return RunSummary(
         run_id=run_id,
-        started_at=datetime.now(timezone.utc),
+        started_at=started_at,
         finished_at=datetime.now(timezone.utc),
         mode=selected_mode,
         expos_discovered=len(result.get("discovered_expos") or []),

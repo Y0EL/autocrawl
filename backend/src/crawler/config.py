@@ -148,8 +148,8 @@ class Settings(BaseSettings):
     # === Translation (vendor data localization) ===
     translation_enabled: bool = Field(default=True, alias="TRANSLATION_ENABLED")
     translation_provider: str = Field(default="nllb", alias="TRANSLATION_PROVIDER")  # nllb | openai | none
-    nllb_model_path: str = Field(default="/app/data/nllb_ct2", alias="NLLB_MODEL_PATH")
-    nllb_tokenizer_path: str = Field(default="/app/data/nllb_hf", alias="NLLB_TOKENIZER_PATH")
+    nllb_model_path: str = Field(default="/opt/nllb_ct2", alias="NLLB_MODEL_PATH")
+    nllb_tokenizer_path: str = Field(default="/opt/nllb_hf/snapshot", alias="NLLB_TOKENIZER_PATH")
     target_language: str = Field(default="id", alias="TARGET_LANGUAGE")  # ISO 639-1
     translation_batch_size: int = Field(default=8, alias="TRANSLATION_BATCH_SIZE")
     translation_max_chars: int = Field(default=2000, alias="TRANSLATION_MAX_CHARS")

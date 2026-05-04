@@ -2,11 +2,16 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --silent
+# `npm install` (not `ci`) so the lockfile gets reconciled in case it drifts.
+# l7 + world-atlas deps were added recently; keep this lenient until the
+# lockfile is regenerated and committed.
+RUN npm install --silent --no-audit --no-fund
 
 COPY . .
 
-ENV VITE_USE_MOCKS=true
+# LIVE mode — every request hits the real FastAPI backend. Mock layer
+# (MSW + frontend/src/mocks) was removed in May 2026 to eliminate any
+# possibility of fixture data leaking into the production image.
 RUN npm run build
 
 FROM nginx:alpine AS runtime

@@ -48,6 +48,12 @@ async def stats_source_types(session: AsyncSession = Depends(get_db)) -> list[di
     return await vendor_repo.source_type_breakdown(session)
 
 
+@router.get("/stats/expo-countries")
+async def stats_expo_countries(session: AsyncSession = Depends(get_db)) -> list[dict]:
+    """Per-country expo + vendor counts for the world map."""
+    return await expo_repo.country_breakdown(session)
+
+
 @router.get("/stats/timeline")
 async def stats_timeline(
     days: int = Query(30, ge=1, le=365),

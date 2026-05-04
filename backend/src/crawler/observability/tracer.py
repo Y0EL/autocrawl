@@ -33,25 +33,40 @@ def get_langfuse_handler() -> Any | None:
         _log.info("langfuse.not_configured", hint="set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY")
         return None
 
-    # langfuse v2: `from langfuse.callback import CallbackHandler`
-    # langfuse v3: `from langfuse.langchain import CallbackHandler`
+    # langfuse v2: `from langfuse.callback import CallbackHandler`, takes
+    #              public_key/secret_key/host kwargs directly.
+    # langfuse v3: `from langfuse.langchain import CallbackHandler`. The
+    #              keys live on the singleton client (`Langfuse(...)`) and
+    #              the handler takes no auth kwargs.
+    is_v3 = False
     CallbackHandler = None
     try:
         from langfuse.callback import CallbackHandler  # type: ignore
     except ImportError:
         try:
             from langfuse.langchain import CallbackHandler  # type: ignore
+            is_v3 = True
         except ImportError as e:
             _log.warning("langfuse.import_failed", error=str(e))
             return None
 
     try:
-        _HANDLER = CallbackHandler(
-            public_key=settings.langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
-        )
-        _log.info("langfuse.enabled", host=settings.langfuse_host)
+        if is_v3:
+            from langfuse import Langfuse  # type: ignore
+
+            Langfuse(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_host,
+            )
+            _HANDLER = CallbackHandler()
+        else:
+            _HANDLER = CallbackHandler(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_host,
+            )
+        _log.info("langfuse.enabled", host=settings.langfuse_host, version="v3" if is_v3 else "v2")
         return _HANDLER
     except Exception as e:  # noqa: BLE001
         _log.warning("langfuse.init_failed", error=str(e))

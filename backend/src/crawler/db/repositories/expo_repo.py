@@ -114,3 +114,42 @@ async def vendor_count_per_expo(session: AsyncSession) -> dict[str, int]:
     )
     rows = (await session.execute(stmt)).all()
     return {r[0]: int(r[1]) for r in rows}
+
+
+async def country_breakdown(session: AsyncSession) -> list[dict[str, Any]]:
+    """Group expos by country with vendor count joined per country.
+
+    Used by the world-map view on the overview dashboard. Vendor count is
+    derived from the expo_vendors many-to-many so a vendor seen at multiple
+    expos in the same country is counted once per (country, vendor).
+    """
+    expo_stmt = (
+        select(ExpoORM.country, func.count())
+        .where(ExpoORM.country.isnot(None))
+        .where(ExpoORM.country != "")
+        .group_by(ExpoORM.country)
+    )
+    expo_rows = (await session.execute(expo_stmt)).all()
+    expo_counts = {row[0]: int(row[1]) for row in expo_rows}
+
+    vendor_stmt = (
+        select(ExpoORM.country, func.count(func.distinct(ExpoVendorORM.vendor_domain)))
+        .join(ExpoVendorORM, ExpoVendorORM.expo_id == ExpoORM.expo_id)
+        .where(ExpoORM.country.isnot(None))
+        .where(ExpoORM.country != "")
+        .group_by(ExpoORM.country)
+    )
+    vendor_rows = (await session.execute(vendor_stmt)).all()
+    vendor_counts = {row[0]: int(row[1]) for row in vendor_rows}
+
+    out: list[dict[str, Any]] = []
+    for country, expo_count in expo_counts.items():
+        out.append(
+            {
+                "country": country,
+                "expo_count": expo_count,
+                "vendor_count": vendor_counts.get(country, 0),
+            }
+        )
+    out.sort(key=lambda r: (-int(r["vendor_count"]), -int(r["expo_count"]), str(r["country"])))
+    return out

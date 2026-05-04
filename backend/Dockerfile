@@ -34,16 +34,20 @@ RUN if [ "$INSTALL_SURYA" = "true" ]; then \
 # NLLB-200 distilled 600M for Indonesian translation. ~1.2GB int8 model.
 # Disable with --build-arg INSTALL_NLLB=false to skip the download.
 # Pass --build-arg HF_TOKEN=hf_xxx for authenticated downloads (faster, no rate limit).
+#
+# IMPORTANT: bake the model into /opt (NOT /app/data) because the runtime
+# bind-mounts ./data:/app/data and would otherwise mask everything we put
+# under /app/data at build time.
 ARG INSTALL_NLLB=true
 ARG HF_TOKEN=
-ENV HF_HOME=/app/data/nllb_hf
+ENV HF_HOME=/opt/nllb_hf
 RUN if [ "$INSTALL_NLLB" = "true" ]; then \
         pip install "ctranslate2>=4.4.0" "sentencepiece>=0.2.0" "huggingface-hub>=0.25.0" "transformers>=4.45.0" && \
-        mkdir -p /app/data/nllb_hf /app/data/nllb_ct2 && \
-        HF_TOKEN=$HF_TOKEN HUGGING_FACE_HUB_TOKEN=$HF_TOKEN python -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/nllb-200-distilled-600M', cache_dir='/app/data/nllb_hf', local_dir='/app/data/nllb_hf/snapshot')" && \
+        mkdir -p /opt/nllb_hf /opt/nllb_ct2 && \
+        HF_TOKEN=$HF_TOKEN HUGGING_FACE_HUB_TOKEN=$HF_TOKEN python -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/nllb-200-distilled-600M', cache_dir='/opt/nllb_hf', local_dir='/opt/nllb_hf/snapshot')" && \
         ct2-transformers-converter \
-            --model /app/data/nllb_hf/snapshot \
-            --output_dir /app/data/nllb_ct2 \
+            --model /opt/nllb_hf/snapshot \
+            --output_dir /opt/nllb_ct2 \
             --quantization int8 \
             --copy_files tokenizer.json tokenizer_config.json sentencepiece.bpe.model special_tokens_map.json \
             --force ; \

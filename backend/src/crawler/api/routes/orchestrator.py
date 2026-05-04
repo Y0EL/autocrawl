@@ -332,25 +332,51 @@ async def orchestrator_current() -> dict[str, Any]:
 
 @router.get("/throughput")
 async def orchestrator_throughput(
-    window_seconds: int = Query(60, ge=10, le=900),
+    window_seconds: int = Query(60, ge=10, le=86400),
 ) -> dict[str, Any]:
-    """Rolling-window throughput rates."""
-    cutoff = time.time() - window_seconds
-    recent = await tail_events(since="0", limit=5000)
+    """Rolling-window throughput rates with adaptive fallback.
 
-    in_window = [ev for ev in recent if float(ev.get("ts") or 0) >= cutoff]
+    If the requested window is empty of events, this widens the window
+    (60s → 5m → 30m → 1h → 24h) until we find activity, so the dashboard
+    is never just zeros — frontend labels the actual window used. Realtime
+    polling on the frontend (every 1-2s) keeps numbers fresh.
+    """
+    now = time.time()
+    recent = await tail_events(since="0", limit=10000)
 
-    enriched = 0
-    errors = 0
-    by_node: dict[str, int] = {}
+    # Compute persistent metrics over ALL events first (cheap).
     active_total = 0
+    last_event_ts: float = 0.0
     for ev in recent:
-        node = ev.get("node") or ""
+        ts = float(ev.get("ts") or 0)
+        if ts > last_event_ts:
+            last_event_ts = ts
         kind = ev.get("event")
         if kind == "started":
             active_total += 1
         elif kind in ("completed", "failed"):
             active_total = max(0, active_total - 1)
+
+    # Adaptive window: try requested → 5m → 30m → 1h → 24h until we see events.
+    candidate_windows = [window_seconds, 300, 1800, 3600, 86400]
+    seen: set[int] = set()
+    chosen_window = window_seconds
+    in_window: list[dict[str, Any]] = []
+    fallback_used = False
+    for idx, w in enumerate(candidate_windows):
+        if w in seen:
+            continue
+        seen.add(w)
+        cutoff = now - w
+        in_window = [ev for ev in recent if float(ev.get("ts") or 0) >= cutoff]
+        chosen_window = w
+        if in_window or idx == len(candidate_windows) - 1:
+            fallback_used = idx > 0
+            break
+
+    enriched = 0
+    errors = 0
+    by_node: dict[str, int] = {}
     for ev in in_window:
         node = ev.get("node") or ""
         kind = ev.get("event")
@@ -364,9 +390,13 @@ async def orchestrator_throughput(
         ):
             enriched += 1
 
-    minute_factor = 60.0 / max(1, window_seconds)
+    minute_factor = 60.0 / max(1, chosen_window)
     return {
         "window_seconds": window_seconds,
+        "effective_window_seconds": chosen_window,
+        "fallback_used": fallback_used,
+        "last_event_at": last_event_ts or None,
+        "now": now,
         "events_total": len(in_window),
         "events_per_minute": round(len(in_window) * minute_factor, 2),
         "vendors_per_minute": round(enriched * minute_factor, 2),

@@ -6,6 +6,8 @@ import HudPanel from '@/components/HudPanel.vue'
 import HudKpiTile from '@/components/HudKpiTile.vue'
 import HudActivityFeed from '@/components/HudActivityFeed.vue'
 import HudStatusPill from '@/components/HudStatusPill.vue'
+import HudWorldMap from '@/components/HudWorldMap.vue'
+import { useRouter } from 'vue-router'
 import IndustryBarChart from '@/components/charts/IndustryBarChart.vue'
 import SourceTypePieChart from '@/components/charts/SourceTypePieChart.vue'
 import VendorTimelineChart from '@/components/charts/VendorTimelineChart.vue'
@@ -14,12 +16,22 @@ import RunsModeBarChart from '@/components/charts/RunsModeBarChart.vue'
 import Phase2GaugeChart from '@/components/charts/Phase2GaugeChart.vue'
 
 const days = ref(30)
+const router = useRouter()
 
 const overviewQ = useQuery({
   queryKey: ['overview'],
   queryFn: api.overview,
   refetchInterval: 30000,
 })
+const expoCountriesQ = useQuery({
+  queryKey: ['stats', 'expo-countries'],
+  queryFn: api.stats.expoCountries,
+  refetchInterval: 30000,
+})
+
+function onMapPick(payload: { country: string; cca2: string }) {
+  router.push({ path: '/expos', query: { country: payload.country } })
+}
 const countriesQ = useQuery({
   queryKey: ['stats', 'countries'],
   queryFn: () => api.stats.countries(10),
@@ -160,6 +172,12 @@ function runLabel(r: { finished_at?: string | null; failures: number }) {
         </button>
       </div>
     </div>
+
+    <HudWorldMap
+      :data="expoCountriesQ.data.value ?? []"
+      :loading="expoCountriesQ.isLoading.value"
+      @pick="onMapPick"
+    />
 
     <section class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <HudKpiTile

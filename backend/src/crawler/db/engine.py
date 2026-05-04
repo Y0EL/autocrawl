@@ -58,7 +58,11 @@ _RUN_COLUMN_PATCHES: list[tuple[str, str]] = [
 ]
 
 
-_VENDORS_PK_MIGRATION_SQL = """
+# asyncpg's prepared-statement protocol rejects multi-statement strings, so we
+# keep the DO-block and the trailing DDLs as separate statements that the
+# driver can dispatch one at a time. The DO block is still self-contained.
+
+_VENDORS_PK_MIGRATION_DO = """
 DO $$
 DECLARE
     has_pk_on_domain boolean;
@@ -87,7 +91,6 @@ BEGIN
         WHERE table_name='vendors' AND constraint_name='vendors_pkey' AND column_name='domain'
     ) INTO has_pk_on_domain;
     IF has_pk_on_domain THEN
-        -- expo_vendors.vendor_domain has FK to vendors.domain - drop and re-add later
         BEGIN
             EXECUTE 'ALTER TABLE expo_vendors DROP CONSTRAINT IF EXISTS expo_vendors_vendor_domain_fkey';
         EXCEPTION WHEN OTHERS THEN NULL;
@@ -107,11 +110,13 @@ BEGIN
         END;
     END IF;
 END $$;
-
-ALTER TABLE vendors ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'enriched';
-CREATE INDEX IF NOT EXISTS ix_vendors_status ON vendors(status);
-CREATE INDEX IF NOT EXISTS ix_vendors_domain ON vendors(domain);
 """
+
+_VENDORS_PK_MIGRATION_TRAILING: list[str] = [
+    "ALTER TABLE vendors ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'enriched'",
+    "CREATE INDEX IF NOT EXISTS ix_vendors_status ON vendors(status)",
+    "CREATE INDEX IF NOT EXISTS ix_vendors_domain ON vendors(domain)",
+]
 
 
 async def init_db() -> None:
@@ -123,10 +128,14 @@ async def init_db() -> None:
 
     # Stage 4 PK swap runs in its own transaction so a failure here cannot
     # poison the create_all transaction below. Idempotent (checks before mutating).
+    # DO block + trailing DDL must be dispatched as separate statements because
+    # asyncpg's prepared-statement protocol rejects multi-statement strings.
     if is_postgres:
         try:
             async with engine.begin() as mig_conn:
-                await mig_conn.execute(text(_VENDORS_PK_MIGRATION_SQL))
+                await mig_conn.execute(text(_VENDORS_PK_MIGRATION_DO))
+                for ddl in _VENDORS_PK_MIGRATION_TRAILING:
+                    await mig_conn.execute(text(ddl))
         except Exception as exc:
             # Fresh DB without vendors table → migration block hits NotFound;
             # create_all below builds the new schema directly. Other errors

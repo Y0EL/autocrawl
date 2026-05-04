@@ -192,6 +192,12 @@ export interface CountryStat {
   count: number
 }
 
+export interface ExpoCountryStat {
+  country: string
+  expo_count: number
+  vendor_count: number
+}
+
 export interface SourceTypeStat {
   type: string
   count: number
@@ -299,6 +305,10 @@ export interface OrchestratorCurrent {
 
 export interface OrchestratorThroughput {
   window_seconds: number
+  effective_window_seconds: number
+  fallback_used: boolean
+  last_event_at: number | null
+  now: number
   events_total: number
   events_per_minute: number
   vendors_per_minute: number

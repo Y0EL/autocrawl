@@ -23,8 +23,8 @@ services:
       CONFIG_DIR: /app/config
       TRANSLATION_ENABLED: "true"
       TRANSLATION_PROVIDER: nllb
-      NLLB_MODEL_PATH: /app/data/nllb_ct2
-      NLLB_TOKENIZER_PATH: /app/data/nllb_hf/snapshot
+      NLLB_MODEL_PATH: /opt/nllb_ct2
+      NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
       TARGET_LANGUAGE: id
     depends_on:
       redis:
@@ -57,8 +57,8 @@ services:
       API_CORS_ORIGINS: http://localhost:5173,http://localhost:8090
       TRANSLATION_ENABLED: "true"
       TRANSLATION_PROVIDER: nllb
-      NLLB_MODEL_PATH: /app/data/nllb_ct2
-      NLLB_TOKENIZER_PATH: /app/data/nllb_hf/snapshot
+      NLLB_MODEL_PATH: /opt/nllb_ct2
+      NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
       TARGET_LANGUAGE: id
     depends_on:
       autocrawl-db:
