@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml ./
 COPY src ./src
+COPY scripts ./scripts
 
 RUN pip install --upgrade pip && pip install -e .
 
@@ -30,6 +31,12 @@ ARG INSTALL_SURYA=true
 RUN if [ "$INSTALL_SURYA" = "true" ]; then \
         pip install "surya-ocr>=0.6.0" "torch>=2.1.0" --extra-index-url https://download.pytorch.org/whl/cpu ; \
     fi
+
+# Katana, Go-based URL discovery booster (MIT, projectdiscovery/katana).
+# Pure-static Go binary, no runtime apt deps required. Runtime gating is
+# done via ENABLE_KATANA env var, not at build time.
+COPY --from=projectdiscovery/katana:latest /usr/local/bin/katana /usr/local/bin/katana
+RUN chmod +x /usr/local/bin/katana && katana -version || true
 
 # NLLB-200 distilled 600M for Indonesian translation. ~1.2GB int8 model.
 # Disable with --build-arg INSTALL_NLLB=false to skip the download.

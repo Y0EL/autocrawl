@@ -253,3 +253,82 @@ class RunSummary(BaseModel):
     exhibitors_validation_rejected: int = 0
     exhibitors_scope_rejected: int = 0
     notes: str | None = None
+
+
+# === Labs / Fusion ===
+
+
+class FusionSuggestion(BaseModel):
+    """Output LLM buat tombol Cari Saran. Satu suggestion per ide kombo."""
+
+    source_vendor_ids: list[str] = Field(min_length=2, max_length=5)
+    product_name: str
+    tagline: str | None = None
+    rationale: str
+    confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+
+
+class FusionArtifacts(BaseModel):
+    """Output LLM buat fase generate produk dari vendor terpilih."""
+
+    name: str
+    tagline: str
+    description: str
+    industries: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+
+
+class EmailDraftPayload(BaseModel):
+    """Output LLM buat satu email outreach per vendor."""
+
+    subject: str
+    body: str
+
+
+class FusionEmailDraftRead(BaseModel):
+    id: int
+    vendor_id: str
+    vendor_name: str | None = None
+    to_email: str
+    subject: str
+    body: str
+    created_at: datetime
+    copied_at: datetime | None = None
+
+
+class FusionRead(BaseModel):
+    fusion_id: str
+    created_at: datetime
+    name: str
+    tagline: str | None = None
+    description: str | None = None
+    image_url: str | None = None
+    source_vendor_ids: list[str]
+    source_vendors: list[dict] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+    status: str
+    drafts: list[FusionEmailDraftRead] = Field(default_factory=list)
+
+
+class FusionListItem(BaseModel):
+    fusion_id: str
+    created_at: datetime
+    name: str
+    tagline: str | None = None
+    image_url: str | None = None
+    source_vendor_count: int
+    industries: list[str] = Field(default_factory=list)
+    status: str
+
+
+class FusionCreateRequest(BaseModel):
+    vendor_ids: list[str] = Field(min_length=2, max_length=5)
+    hint: str | None = None
+
+
+class FusionSuggestRequest(BaseModel):
+    candidate_vendor_ids: list[str] | None = None
+    industries: list[str] | None = None

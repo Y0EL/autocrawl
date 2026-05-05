@@ -293,3 +293,53 @@ class AppPromptORM(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class FusionORM(Base):
+    """Labs fusion record. Hasil kombinasi 2 atau lebih vendor jadi produk baru."""
+
+    __tablename__ = "fusions"
+
+    fusion_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    tagline: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(Text)
+    source_vendor_ids: Mapped[list[str]] = mapped_column(JsonType, default=list)
+    industries: Mapped[list[str]] = mapped_column(JsonType, default=list)
+    tags: Mapped[list[str]] = mapped_column(JsonType, default=list)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="draft", server_default="draft", index=True
+    )
+    llm_provider: Mapped[str | None] = mapped_column(String(30))
+
+    drafts: Mapped[list[FusionEmailDraftORM]] = relationship(
+        back_populates="fusion", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class FusionEmailDraftORM(Base):
+    """Email draft outreach per source vendor di sebuah fusion."""
+
+    __tablename__ = "fusion_email_drafts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    fusion_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("fusions.fusion_id", ondelete="CASCADE"), index=True
+    )
+    vendor_id: Mapped[str] = mapped_column(String(36), index=True)
+    to_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    copied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    fusion: Mapped[FusionORM] = relationship(back_populates="drafts")

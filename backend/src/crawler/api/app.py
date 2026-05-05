@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
 from ..db.engine import dispose_engine, init_db
@@ -13,6 +14,7 @@ from .routes import (
     exhibitor_refs,
     expos,
     health,
+    labs,
     orchestrator,
     overview,
     pdfs,
@@ -97,6 +99,15 @@ def create_app() -> FastAPI:
     application.include_router(orchestrator.router, prefix="/api")
     application.include_router(exhibitor_refs.router, prefix="/api")
     application.include_router(config_scope.router, prefix="/api")
+    application.include_router(labs.router, prefix="/api")
+
+    fusions_dir = settings.data_dir / "fusions"
+    fusions_dir.mkdir(parents=True, exist_ok=True)
+    application.mount(
+        "/static/fusions",
+        StaticFiles(directory=str(fusions_dir)),
+        name="fusion_static",
+    )
 
     return application
 

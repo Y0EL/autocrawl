@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 from urllib.parse import urljoin
 
+from ...config import get_settings
 from ...observability.logger import get_logger
 from ..browsers.fetcher import fetch
+from ..discovery.katana import discover_urls as katana_discover
 from ..parsers.email_harvester import (
     harvest_emails,
     harvest_phones,
@@ -73,6 +75,33 @@ async def crawl_vendor_site(
             pages_to_fetch.append(u)
         if len(pages_to_fetch) >= max_pages * 2:
             break
+
+    settings = get_settings()
+    if settings.enable_katana and len(pages_to_fetch) < max_pages * 2:
+        budget = (max_pages * 2) - len(pages_to_fetch)
+        kat = await katana_discover(
+            canonical_site_url,
+            max_urls=min(settings.katana_max_urls, budget),
+            timeout=settings.katana_timeout_seconds,
+        )
+        if kat.success and kat.urls:
+            existing = set(pages_to_fetch)
+            added = 0
+            for u in kat.urls:
+                if u in existing:
+                    continue
+                pages_to_fetch.append(u)
+                existing.add(u)
+                added += 1
+                if len(pages_to_fetch) >= max_pages * 2:
+                    break
+            _log.info(
+                "vendor_site_crawl.katana_merged",
+                site=canonical_site_url,
+                katana_returned=len(kat.urls),
+                added=added,
+                total_frontier=len(pages_to_fetch),
+            )
 
     seen: set[str] = set()
     fetched: list[dict] = []

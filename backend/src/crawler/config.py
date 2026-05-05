@@ -193,6 +193,18 @@ class Settings(BaseSettings):
     crawl4ai_max_concurrent: int = Field(default=4, alias="CRAWL4AI_MAX_CONCURRENT")
     crawl4ai_extraction_model: str = Field(default="gpt-4o-mini", alias="CRAWL4AI_EXTRACTION_MODEL")
 
+    # === Katana (Go-based discovery booster, projectdiscovery/katana) ===
+    # Subprocess wrapper. Discovery-only, extracts URLs from a vendor seed
+    # (including endpoints found by parsing JS bundles) which we then fetch
+    # via our own pipeline. Defaults are tuned to be a politeness peer of
+    # the existing per-domain rate limiter.
+    enable_katana: bool = Field(default=True, alias="ENABLE_KATANA")
+    katana_timeout_seconds: int = Field(default=30, alias="KATANA_TIMEOUT_SECONDS")
+    katana_max_urls: int = Field(default=50, alias="KATANA_MAX_URLS")
+    katana_concurrency: int = Field(default=5, alias="KATANA_CONCURRENCY")
+    katana_rate_limit_per_second: int = Field(default=2, alias="KATANA_RATE_LIMIT_PER_SECOND")
+    katana_depth: int = Field(default=2, alias="KATANA_DEPTH")
+
     # === Phase gating ===
     phase_2_vendor_threshold: int = Field(default=100, alias="PHASE_2_VENDOR_THRESHOLD")
 

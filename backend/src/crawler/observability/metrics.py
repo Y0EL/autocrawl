@@ -147,6 +147,24 @@ phase_2_progress = Gauge(
     registry=REGISTRY,
 )
 
+# === Labs / Fusion ===
+fusion_created_total = Counter(
+    "crawl_fusion_created_total",
+    "Total fusions berhasil dibikin.",
+    registry=REGISTRY,
+)
+fusion_emails_drafted_total = Counter(
+    "crawl_fusion_emails_drafted_total",
+    "Email drafts di-generate, bucketed by status.",
+    ["status"],
+    registry=REGISTRY,
+)
+fusion_emails_copied_total = Counter(
+    "crawl_fusion_emails_copied_total",
+    "Drafts yang di-copy user (analytics).",
+    registry=REGISTRY,
+)
+
 
 def start_metrics_server(port: int = 8080) -> None:
     """Start the /metrics HTTP endpoint."""

@@ -18,6 +18,7 @@ const items: NavItem[] = [
   { to: '/diagnostik', label: 'Diagnostik', icon: 'heart-pulse', code: '06' },
   { to: '/orkestrator', label: 'Orkestrator', icon: 'circle-nodes', code: '07' },
   { to: '/konfigurasi', label: 'Konfigurasi', icon: 'sliders', code: '08' },
+  { to: '/labs', label: 'Labs', icon: 'flask', code: '09' },
 ]
 
 const collapsed = useStorage('autocrawl-sidebar-collapsed', true)

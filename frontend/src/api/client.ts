@@ -6,8 +6,12 @@ import type {
   Expo,
   ExpoCountryDetail,
   ExpoCountryStat,
+  Fusion,
+  FusionListItem,
+  FusionSuggestion,
   HealthResponse,
   IndustryStat,
+  LabsCandidatesResponse,
   OrchestratorCurrent,
   OrchestratorEventsResponse,
   OrchestratorState,
@@ -174,5 +178,19 @@ export const api = {
       http
         .post<ScopeSuggestResponse>('/config/scope/suggest', body)
         .then((r) => r.data),
+  },
+  labs: {
+    candidates: (params: { search?: string; only_with_email?: boolean; limit?: number; offset?: number } = {}) =>
+      http.get<LabsCandidatesResponse>('/labs/candidates', { params }).then((r) => r.data),
+    suggest: (body: { candidate_vendor_ids?: string[]; industries?: string[] } = {}) =>
+      http.post<{ suggestions: FusionSuggestion[] }>('/labs/suggestions', body).then((r) => r.data),
+    create: (body: { vendor_ids: string[]; hint?: string }) =>
+      http.post<Fusion>('/labs/fusions', body, { timeout: 120000 }).then((r) => r.data),
+    list: (params: { limit?: number; offset?: number } = {}) =>
+      http.get<{ items: FusionListItem[]; limit: number; offset: number }>('/labs/fusions', { params }).then((r) => r.data),
+    detail: (id: string) =>
+      http.get<Fusion>(`/labs/fusions/${id}`).then((r) => r.data),
+    markCopied: (fusionId: string, emailId: number) =>
+      http.post<{ ok: boolean }>(`/labs/fusions/${fusionId}/emails/${emailId}/mark-copied`).then((r) => r.data),
   },
 }

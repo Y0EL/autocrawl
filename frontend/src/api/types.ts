@@ -404,3 +404,77 @@ export interface ScopeSuggestResponse {
   hint: string
   suggestions: ScopeSuggestion[]
 }
+
+// === Labs / Fusion ===
+
+export interface VendorCandidate {
+  vendor_id: string
+  company_name: string
+  domain: string | null
+  logo_url: string | null
+  industries: string[]
+  description: string
+  has_verified_email: boolean
+  primary_email: string | null
+  confidence_score: number
+}
+
+export interface LabsCandidatesResponse {
+  items: VendorCandidate[]
+  limit: number
+  offset: number
+}
+
+export interface FusionSuggestion {
+  source_vendor_ids: string[]
+  product_name: string
+  tagline: string | null
+  rationale: string
+  confidence: number
+}
+
+export interface FusionEmailDraft {
+  id: number
+  vendor_id: string
+  vendor_name: string | null
+  to_email: string
+  subject: string
+  body: string
+  created_at: string
+  copied_at: string | null
+}
+
+export interface FusionSourceVendor {
+  vendor_id: string
+  company_name: string
+  domain: string | null
+  logo_url: string | null
+  industries: string[]
+}
+
+export interface Fusion {
+  fusion_id: string
+  created_at: string
+  name: string
+  tagline: string | null
+  description: string | null
+  image_url: string | null
+  source_vendor_ids: string[]
+  source_vendors: FusionSourceVendor[]
+  industries: string[]
+  tags: string[]
+  rationale: string | null
+  status: 'draft' | 'finalized' | 'archived'
+  drafts: FusionEmailDraft[]
+}
+
+export interface FusionListItem {
+  fusion_id: string
+  created_at: string
+  name: string
+  tagline: string | null
+  image_url: string | null
+  source_vendor_count: number
+  industries: string[]
+  status: string
+}
