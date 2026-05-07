@@ -54,6 +54,10 @@ const stopping = ref(false)
 const showModeMenu = ref(false)
 const showForceModal = ref(false)
 
+defineProps<{
+  transparent?: boolean
+}>()
+
 async function triggerRun(mode: 'dev' | 'normal' | 'aggressive' = 'normal') {
   showModeMenu.value = false
   if (isRunning.value || submitting.value) return
@@ -120,17 +124,27 @@ async function stopRun(force: boolean) {
 }
 
 function onStopClick(e: MouseEvent) {
+  // Default = open force-confirm modal. Graceful stop is currently a no-op
+  // (workers don't check the cooperative flag in graph.py), so the only
+  // path that actually halts a run is force. Modal warns about implications.
+  // Shift+click skips the modal and fires graceful for users who explicitly
+  // want to drain naturally and don't mind that it might not stop.
   if (e.shiftKey) {
-    showForceModal.value = true
+    void stopRun(false)
     return
   }
-  void stopRun(false)
+  showForceModal.value = true
 }
 </script>
 
 <template>
   <header
-    class="relative z-50 flex h-12 shrink-0 items-center justify-between border-b border-base-200 bg-white px-4 dark:border-base-700 dark:bg-base-900"
+    :class="[
+      'relative z-50 flex h-12 shrink-0 items-center justify-between px-4',
+      transparent
+        ? 'border-b border-accent-500/15 bg-base-950/30 backdrop-blur-2xl'
+        : 'border-b border-base-200 bg-white dark:border-base-700 dark:bg-base-900',
+    ]"
   >
     <div class="flex items-center gap-3">
       <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
@@ -157,6 +171,12 @@ function onStopClick(e: MouseEvent) {
       <HudHeartbeat />
       <span class="hidden h-4 w-px bg-base-200 dark:bg-base-700 sm:inline-block" />
       <HudUptime label="UPTIME" />
+      <template v-if="transparent">
+        <span class="hidden h-4 w-px bg-accent-500/20 sm:inline-block" />
+        <span class="hidden font-mono text-2xs uppercase tracking-ops text-base-500 sm:inline">
+          BUILD 0.2 · DEFCON-IDLE
+        </span>
+      </template>
     </div>
 
     <div class="flex items-center gap-2">
@@ -220,7 +240,7 @@ function onStopClick(e: MouseEvent) {
         >
           <div
             v-if="showModeMenu"
-            class="absolute right-0 top-9 z-[55] w-48 border border-base-200 bg-white shadow-xl dark:border-base-700 dark:bg-base-900"
+            class="absolute right-0 top-10 z-[55] w-48 overflow-hidden rounded-lg border border-base-200 bg-white shadow-xl dark:border-base-700 dark:bg-base-900"
           >
             <button
               class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-accent-500/10"
@@ -274,7 +294,9 @@ function onStopClick(e: MouseEvent) {
             <li>• Vendor mid-enrich tidak akan ke-commit ke DB</li>
           </ul>
           <p class="font-mono text-2xs leading-relaxed text-warn-400">
-            Pertimbangkan klik biasa (graceful) kalau gak urgent.
+            Tip: Shift+klik tombol stop = graceful drain (worker drain natural,
+            tapi sekarang ga ada boundary check di graph.py jadi sebagian besar
+            worker tetep jalan sampai selesai). Force aja kalau mau bener-bener stop.
           </p>
           <div class="flex items-center justify-end gap-2 pt-1">
             <button class="hud-btn-ghost" type="button" @click="showForceModal = false">

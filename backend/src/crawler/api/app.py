@@ -31,19 +31,23 @@ async def lifespan(_app: FastAPI):
     import asyncio
 
     configure_logging()
-    last_err: str | None = None
-    for attempt in range(1, 11):
-        try:
-            await init_db()
-            _log.info("api.db_init_ok", attempt=attempt)
-            last_err = None
-            break
-        except Exception as e:
-            last_err = str(e)
-            _log.warning("api.db_init_retry", attempt=attempt, error=last_err)
-            await asyncio.sleep(min(2 ** attempt, 15))
-    if last_err is not None:
-        _log.error("api.db_init_failed_giving_up", error=last_err)
+    settings = get_settings()
+    if settings.persist_to_db:
+        last_err: str | None = None
+        for attempt in range(1, 11):
+            try:
+                await init_db()
+                _log.info("api.db_init_ok", attempt=attempt)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = str(e)
+                _log.warning("api.db_init_retry", attempt=attempt, error=last_err)
+                await asyncio.sleep(min(2 ** attempt, 15))
+        if last_err is not None:
+            _log.error("api.db_init_failed_giving_up", error=last_err)
+    else:
+        _log.info("api.db_init_skipped", reason="persist_to_db=false; JSON-only mode")
 
     # Boot the scope-cache realtime poller (cross-process invalidation).
     try:

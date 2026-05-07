@@ -57,13 +57,13 @@ const option = computed(() => {
           color: subText,
           distance: 4,
           fontSize: 9,
-          fontFamily: 'IBM Plex Mono, monospace',
+          fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
         },
         title: {
           offsetCenter: [0, '38%'],
           color: subText,
           fontSize: 11,
-          fontFamily: 'IBM Plex Mono, monospace',
+          fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
           fontWeight: 500,
         },
         detail: {

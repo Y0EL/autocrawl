@@ -142,6 +142,9 @@ async def persist_unresolved_vendor(ref: ExhibitorRef, *, failure_category: str 
         },
     )
     try:
+        # JSON is the source of truth. Use vendor_id as the slug since
+        # `domain` is None for unresolved refs.
+        await write_vendor(vendor)
         await persist_vendor_to_db(vendor)
         _log.info(
             "reporter.unresolved_persisted",

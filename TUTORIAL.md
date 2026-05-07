@@ -79,7 +79,23 @@ Build dan start semua service dalam satu perintah.
 docker compose up -d --build
 ```
 
-Build pertama kali akan memakan waktu sekitar 25 sampai 35 menit karena harus download playwright chromium, surya OCR (3 GB), NLLB model (1.5 GB), image OpenSERP plus Chromium internal nya (sekitar 600 MB), dan Ollama dengan dua model granite (sekitar 3 GB). Setelah itu cache nya tersimpan, build berikutnya jauh lebih cepat (sekitar 30 detik kalau cuma edit code).
+Build pertama kali sekitar **8 sampai 15 menit** untuk image backend + frontend (playwright chromium, deps Python, plus npm install + vite build). OCR sekarang dilayani Ollama vision model (`gemma4:e4b`) jadi gak ada PyTorch / Surya weight 3 GB lagi di image — build jauh lebih cepat. Build berikutnya cuma 30-60 detik kalau cuma edit code (cache mount BuildKit + layer order yang dep-install sebelum COPY src).
+
+NLLB-200 (~1.34 GB) **tidak lagi di-bake ke image** sejak migrasi May 2026 — sebelumnya re-download tiap rebuild yang bikin build 79+ menit. Sekarang download sekali ke host lewat one-shot service:
+
+```bash
+docker compose --profile setup run --rm nllb-setup
+```
+
+Ini download facebook/nllb-200-distilled-600M dari Hugging Face, konversi ke int8 CTranslate2 di folder `./nllb_models/nllb_ct2/` di host (~600 MB final). Subsequent rebuild image, prune cache, atau bahkan reinstall Docker Desktop **gak akan re-download** — file di host persist. Folder `nllb_models/` udah masuk `.gitignore`.
+
+Pas runtime, container `crawler` dan `api` baca model dari host folder via volume mount `./nllb_models/nllb_ct2:/opt/nllb_ct2:ro`. Path env `NLLB_MODEL_PATH=/opt/nllb_ct2` di compose udah pointing ke sana.
+
+Untuk download lebih cepat (gak kena anonymous rate limit HF), set token gratis dari https://huggingface.co/settings/tokens:
+
+```bash
+HF_TOKEN=hf_xxx docker compose --profile setup run --rm nllb-setup
+```
 
 Pantau progress download model granite di container ollama.
 
@@ -89,13 +105,18 @@ docker compose logs -f ollama
 
 Yang lo cari di output, baris `[ollama-init] pulling granite4.1:3b` lalu `[ollama-init] bootstrap complete`. Tunggu sampai status container `ollama` jadi `healthy` (sekitar 5 sampai 8 menit pertama kali).
 
-Kalau ingin build tanpa NLLB untuk hemat ruang dan waktu, tambahkan flag.
+Kalau gak butuh translation Bahasa Indonesia (vendor data tetap English saja), skip step `nllb-setup` dan set di `.env`:
 
-```bash
-docker compose build --build-arg INSTALL_NLLB=false
+```
+TRANSLATION_ENABLED=false
 ```
 
-Tanpa NLLB, translasi akan fallback ke LLM Ollama (granite4.1:3b) atau OpenAI kalau provider di switch.
+Atau kalau prefer model di-bake ke image (legacy mode untuk deployment air-gapped tanpa host volume), build dengan flag:
+
+```bash
+docker compose build --build-arg INSTALL_NLLB=true crawler
+```
+Kalau dipilih ini, hapus baris volume mount `./nllb_models/nllb_ct2:/opt/nllb_ct2:ro` di compose biar gak shadow model yang baked di image.
 
 ---
 
@@ -433,9 +454,9 @@ Brosur PDF expo seringkali memuat daftar exhibitor lengkap dengan nomor booth. A
 docker compose exec api crawl pdf-test https://example.com/expo-brochure.pdf --expo-id manual-test
 ```
 
-Output tabel berisi nama vendor, halaman, posisi, dan metode ekstraksi (`pymupdf` untuk PDF text murni, `pdfplumber_table` untuk tabel terstruktur, `surya_ocr` untuk PDF scan/image).
+Output tabel berisi nama vendor, halaman, posisi, dan metode ekstraksi (`pymupdf` untuk PDF text murni, `pdfplumber_table` untuk tabel terstruktur, `vlm_ocr` untuk PDF scan/image).
 
-Kalau PDF Anda hanya hasil scan dan OCR diperlukan, pastikan `OCR_ENABLED=true` di `.env` dan image dibuild dengan `INSTALL_SURYA=true` (default).
+Kalau PDF Anda hanya hasil scan dan OCR diperlukan, pastikan `OCR_ENABLED=true` di `.env` dan vision model sudah ke-pull di Ollama (`docker compose exec ollama ollama pull gemma4:e4b`). Bisa swap ke model yang lebih kuat (`OCR_VLM_MODEL=gemma4:31b`) buat akurasi lebih tinggi, dengan trade-off latency.
 
 ---
 
@@ -522,6 +543,58 @@ curl -X POST http://localhost:8081/api/runs/trigger -H "Content-Type: applicatio
 
 ---
 
+## 13x. Reset State Sebelum Run Baru
+
+Setiap run nyimpan state sementara di Redis (lock active_run, taskclaim, recent_queries) dan beberapa row Postgres yang status-nya mid-pipeline (`resolving`, `enriching`). Kalau container di-kill paksa, run sebelumnya freeze, atau lo cuma mau mulai dari clean slate, bersihin pakai satu command.
+
+```bash
+docker compose exec api crawl reset-state
+```
+
+Default-nya **aman dan idempotent**. Yang dihapus:
+
+- Redis key `autocrawl:active_run` (lock yang nyegah trigger run baru kalau run lama gantung).
+- Redis key `discovery:recent_queries` (dedup query antar-run, di-reset biar topik lama bisa di-query lagi).
+- Semua Redis key `taskclaim:*` (claim per-domain enrichment).
+- Postgres row di tabel `runs` yang `finished_at IS NULL` ditutup dengan `notes='manual_reset'`.
+- Postgres row di tabel `exhibitor_refs` yang status-nya `resolving` atau `enriching` direset balik ke `extracted` (siap diretry run berikut).
+
+Yang **tidak** dihapus (sengaja):
+
+- File JSON di `data/reports/` — itu source of truth, jangan diutak-atik.
+- Volume Postgres `autocrawl_pgdata` — vendors/expos yang udah complete tetap ada.
+- Vector DB `data/vector_db/` — dedup similarity tetap nyala.
+- PDF cache dan log file (kecuali pakai flag opsional di bawah).
+
+Flag opsional kalau perlu lebih jauh:
+
+```bash
+docker compose exec api crawl reset-state --clear-pdfs            # hapus data/pdfs/
+docker compose exec api crawl reset-state --clear-logs            # hapus logs/*.jsonl
+docker compose exec api crawl reset-state --clear-pdfs --clear-logs -y   # full clean tanpa confirm
+```
+
+Output berupa dua tabel: pertama preview rencana aksi, kedua hasil akhir per step (jumlah row direset, key dihapus, dst).
+
+Buat reset paling nuclear (hapus volume sekalian), pakai `docker compose down -v` dari section sebelumnya — itu wipe semua, perlu boot ulang dari awal.
+
+### Manual fallback
+
+Kalau CLI ga bisa dijalanin (image API rusak, container crash loop), reset manual:
+
+```bash
+docker compose exec redis redis-cli DEL autocrawl:active_run discovery:recent_queries
+docker compose exec redis redis-cli --scan --pattern "taskclaim:*" | xargs -I{} docker compose exec redis redis-cli DEL {}
+
+docker compose exec autocrawl-db psql -U postgres autocrawl -c "
+  UPDATE runs SET finished_at=NOW(), notes='manual_reset' WHERE finished_at IS NULL;
+  UPDATE exhibitor_refs SET status='extracted', failure_category=NULL, failure_reason=NULL
+    WHERE status IN ('resolving','enriching');
+"
+```
+
+---
+
 ## 13a. Konfigurasi Scope di UI (live, no restart)
 
 Buka http://localhost:8090/konfigurasi. Empat tab tersedia.
@@ -590,6 +663,90 @@ Setelah stop, lock `autocrawl:active_run` di Redis otomatis di clear. Trigger ru
 
 ---
 
+## 13y. Agentic Crawler — AI-Driven Sibling (Host-Side Run)
+
+Service kedua paralel sama existing crawler. Vision LLM (qwen3.6:27b di Ollama LAN `10.83.81.246:11434`) drive Chromium real, scroll dan klik kayak manusia, hasilkan exhibitor data ke meja yang sama (JSON + Postgres + Chroma). Dedup cosine 0.92 auto-merge overlap antara dua producer.
+
+**Default OFF.** `AGENTIC_ENABLED=false` di `.env` — service tidur idle kalo gak diaktifkan, base crawler 100% gak terdampak.
+
+### Kenapa run host-side, bukan di Docker?
+
+`browser-use` butuh Python ≥3.11, base image kita Python 3.10. Plus install agentic ke main image artinya rebuild ~30 menit tiap kali iterasi code agentic — buang waktu. Solusi: jalanin di host pake Python 3.11+ venv, ngomong ke Redis/Postgres/Chroma di Docker via port localhost yang baru di-expose.
+
+### Setup sekali (PowerShell di Windows):
+
+```powershell
+# Pastikan Python 3.11+ ada di PATH (verify: python --version)
+.\backend\scripts\setup-agentic-host.ps1
+```
+
+### Setup sekali (Bash di Linux/macOS/WSL):
+
+```bash
+bash backend/scripts/setup-agentic-host.sh
+```
+
+Script bikin venv di `backend/.venv-agentic/`, install `autocrawler[agentic]` editable mode (browser-use + langchain-ollama + semua deps crawler), plus Playwright Chromium download.
+
+### Jalanin (Windows PowerShell):
+
+```powershell
+# Pastikan service Docker yang dibutuhkan sudah jalan
+docker compose up -d redis chroma autocrawl-db
+
+# Activate venv
+.\backend\.venv-agentic\Scripts\Activate.ps1
+
+# Override env biar host-side ngomong ke localhost (bukan docker DNS)
+$env:REDIS_URL = 'redis://localhost:6379/0'
+$env:CHROMA_HOST = 'localhost'
+$env:DATABASE_URL = 'postgresql+asyncpg://postgres:123@localhost:5432/autocrawl'
+$env:AGENTIC_ENABLED = 'true'
+$env:AGENTIC_HEADLESS = 'false'   # mau lihat Chromium real-time
+
+# Verifikasi seed YAML loaded
+agentic-crawl seeds
+
+# One-shot: jalanin satu seed manual
+agentic-crawl run --seed-name "ISC West 2026 — exhibitor list"
+
+# 24/7 scheduler (Ctrl-C buat stop graceful)
+agentic-crawl schedule
+```
+
+### Stop dari container/host lain (kalau scheduler stuck):
+
+```bash
+# Set Redis flag — scheduler check antar seed dan saat sleep, exit clean.
+docker compose exec redis redis-cli SET autocrawl:agentic_stop_requested 1 EX 600
+```
+
+Atau pakai CLI dari container manapun yang punya akses Redis:
+```bash
+docker compose exec api agentic-crawl stop
+```
+
+### Edit seed list
+
+`config/agentic_seeds.yaml` — tambah seed dengan nama, URL, expo_id, dan task instruction free-form (bahasa apapun yang qwen3.6 ngerti). Lihat template comment di file untuk contoh.
+
+### Folder recordings
+
+Tiap task tinggalin `data/agentic_recordings/<timestamp>-<seed_name>/` dengan screenshot per step + log conversation qwen. Buka folder buat audit "kenapa qwen klik salah di step 12". Toggle off via `AGENTIC_RECORD_SCREENSHOTS=false` kalau gak butuh.
+
+### Kapan PERLU Docker mode (alternatif)
+
+Kalau deploy di production server tanpa akses interaktif, butuh `agentic-crawler` jadi service container yang restart sendiri. Build image terpisah:
+
+```bash
+docker compose --profile agentic build agentic-crawler
+docker compose --profile agentic up -d agentic-crawler
+```
+
+Tapi ini butuh `Dockerfile.agentic` dengan Python 3.11 base — belum dibikin. Buat dev iteration, host-side approach di atas jauh lebih cepat.
+
+---
+
 ## 14. Troubleshooting Umum
 
 ### Port conflict saat `docker compose up`
@@ -637,7 +794,7 @@ docker network connect autocrawl_crawl_net <nama-container>
 
 ### OOM (Out Of Memory)
 
-Surya OCR, NLLB, plus model granite di Ollama bisa makan RAM total sampai 15 sampai 20 GB saat semua resident. Kalau Docker Desktop di Windows atau Mac, naikkan limit nya di Settings, Resources. Minimum 12 GB, recommended 24 GB.
+NLLB plus model di Ollama (Granite chat + gemma4:e4b vision OCR + qwen3-embedding) bisa makan RAM total sampai 12 sampai 18 GB saat semua resident. Kalau Docker Desktop di Windows atau Mac, naikkan limit nya di Settings, Resources. Minimum 12 GB, recommended 20 GB. (OCR sekarang diserahkan ke Ollama jadi crawler container sendiri jauh lebih ramping vs versi Surya.)
 
 Kalau RAM tetap tidak cukup, ada beberapa opsi.
 
@@ -645,8 +802,9 @@ Kalau RAM tetap tidak cukup, ada beberapa opsi.
 # 1. Build tanpa NLLB (translation fallback ke Granite via Ollama)
 docker compose build --build-arg INSTALL_NLLB=false
 
-# 2. Build tanpa Surya OCR (PDF scanned tidak akan ke ekstrak)
-docker compose build --build-arg INSTALL_SURYA=false
+# 2. Disable OCR (PDF scanned tidak akan ke ekstrak; PDF text murni tetep jalan)
+# Set di .env:
+OCR_ENABLED=false
 
 # 3. Turunkan browser pool size di .env
 BROWSER_POOL_SIZE=8
@@ -744,7 +902,7 @@ Set hard budget cap di OpenAI dashboard untuk safety, di Settings, Billing, Usag
 
 Sangat direkomendasikan kalau pakai Ollama default (granite4.1:3b). CPU only sekitar 5 sampai 15 token per detik, mode normal jadi 1 sampai 3 jam. Dengan RTX 3060 atau 4070, throughput naik ke 60 sampai 120 token per detik, mode normal selesai 30 sampai 90 menit.
 
-NLLB-200 distilled 600M sudah optimized int8 untuk CPU, tidak butuh GPU. Surya OCR juga jalan di CPU walau bisa pakai CUDA kalau tersedia.
+NLLB-200 distilled 600M sudah optimized int8 untuk CPU, tidak butuh GPU. OCR sekarang dilayani Ollama vision model (`gemma4:e4b`) — pakai GPU yang sama dengan chat LLM lewat Ollama, tidak ada PyTorch terpisah lagi.
 
 **Kapan unlock Phase 2?**
 
@@ -760,7 +918,7 @@ PHASE_2_VENDOR_THRESHOLD=50
 
 Tidak. Crawler butuh akses ke 10times, Wikipedia, target vendor websites untuk fetch HTML mentah, plus tile basemap CartoDB untuk world map. LLM dan embedding udah lokal lewat Ollama. Search via OpenSERP juga butuh internet karena scrape Google atau Bing. Internet wajib operasional.
 
-First boot perlu bandwidth ekstra untuk download model (granite 3 GB, NLLB 1.5 GB, Surya 3 GB, OpenSERP image 600 MB). Setelah cached, restart selanjutnya tidak butuh download ulang.
+First boot perlu bandwidth ekstra untuk download model (granite 3 GB, NLLB 1.5 GB, gemma4:e4b ~3 GB lewat Ollama, OpenSERP image 600 MB). Setelah cached, restart selanjutnya tidak butuh download ulang.
 
 **Bisakah ekstrak data dari LinkedIn / Crunchbase langsung?**
 

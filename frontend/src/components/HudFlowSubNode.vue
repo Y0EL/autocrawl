@@ -29,7 +29,7 @@ const ledClass = computed(() => {
 
 <template>
   <div
-    class="hud-flow-subnode group relative flex w-[150px] flex-col border bg-white shadow-sm transition-all duration-200 dark:bg-base-900"
+    class="hud-flow-subnode group relative flex w-[150px] flex-col rounded-md border bg-white shadow-sm transition-all duration-200 dark:bg-base-900"
     :style="{ borderColor: tone, boxShadow: `0 0 0 1px ${tone}20` }"
   >
     <Handle type="target" :position="Position.Left" class="!h-1.5 !w-1.5 !border !border-base-400 !bg-base-100 dark:!bg-base-800" />

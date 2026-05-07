@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import urllib.parse
 
-import httpx
-
 from ...config import get_settings
 from ...observability.logger import get_logger
 from ...observability.metrics import errors_total
+from ..http_proxy import proxied_client
 from .base import SearchHit
 
 _log = get_logger(__name__)
@@ -23,7 +22,7 @@ async def search(query: str, *, max_results: int = 20, hl: str = "en", gl: str =
 
     timeout = get_settings().global_request_timeout_seconds
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with proxied_client(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 AutoCrawler"})
             resp.raise_for_status()
             feed = feedparser.parse(resp.text)

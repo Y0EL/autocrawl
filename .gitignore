@@ -51,6 +51,7 @@ desktop.ini
 # Project data — generated at runtime
 data/
 logs/
+nllb_models/
 !data/.gitkeep
 !logs/.gitkeep
 

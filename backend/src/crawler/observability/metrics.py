@@ -93,6 +93,42 @@ llm_call_duration_seconds = Histogram(
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 60),
     registry=REGISTRY,
 )
+llm_queue_wait_seconds = Histogram(
+    "crawl_llm_queue_wait_seconds",
+    "Time spent waiting to acquire an LLM concurrency slot, by tier.",
+    ["tier"],
+    buckets=(0.01, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120),
+    registry=REGISTRY,
+)
+llm_queue_inflight = Gauge(
+    "crawl_llm_queue_inflight",
+    "Currently held LLM concurrency slots, by tier (process-local view).",
+    ["tier"],
+    registry=REGISTRY,
+)
+agentic_overlays_dismissed_total = Counter(
+    "crawl_agentic_overlays_dismissed_total",
+    "Cookie banners / modals / chat widgets the agentic tool removed, by site.",
+    ["site"],
+    registry=REGISTRY,
+)
+agentic_enrich_inflight = Gauge(
+    "crawl_agentic_enrich_inflight",
+    "Currently in-flight enrichment tasks per worker.",
+    ["worker_id"],
+    registry=REGISTRY,
+)
+agentic_enrich_queue_depth = Gauge(
+    "crawl_agentic_enrich_queue_depth",
+    "Pending entries on agentic:enrich:queue stream (XLEN).",
+    registry=REGISTRY,
+)
+agentic_enrich_outcomes_total = Counter(
+    "crawl_agentic_enrich_outcomes_total",
+    "Outcomes of agentic enrichment tasks bucketed by status.",
+    ["status"],   # success | formality | timeout | error | dedup_skipped
+    registry=REGISTRY,
+)
 
 # === Quotas ===
 firecrawl_credits_used_total = Counter(

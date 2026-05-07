@@ -15,7 +15,7 @@ type Tab = 'create' | 'history'
 const activeTab = ref<Tab>('create')
 
 const search = ref('')
-const onlyWithEmail = ref(true)
+const onlyWithEmail = ref(false)
 const selected = ref<Set<string>>(new Set())
 const hint = ref('')
 const showConfirm = ref(false)
@@ -76,7 +76,10 @@ const selectedVendors = computed(() =>
 )
 
 const missingEmail = computed(() => selectedVendors.value.filter((v) => !v.has_verified_email))
-const canCombine = computed(() => selected.value.size >= 2 && missingEmail.value.length === 0)
+// Email no longer gates Combine — operator can fuse vendors without
+// verified email. `missingEmail` still computed so the UI can warn,
+// but it doesn't block.
+const canCombine = computed(() => selected.value.size >= 2)
 
 const deepenBusy = ref<Set<string>>(new Set())
 

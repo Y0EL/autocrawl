@@ -60,10 +60,10 @@ defineProps<{
       autoresize
       :loading-options="{
         text: 'MEMUAT',
-        color: '#FFB800',
-        textColor: isDark ? '#E5EAF1' : '#2A3340',
-        maskColor: isDark ? 'rgba(7, 9, 12, 0.7)' : 'rgba(255, 255, 255, 0.7)',
-        fontFamily: 'IBM Plex Mono, monospace',
+        color: '#10302E',
+        textColor: '#141210',
+        maskColor: 'rgba(244, 239, 230, 0.7)',
+        fontFamily: 'JetBrains Mono Variable, JetBrains Mono, monospace',
         fontSize: 11,
         fontWeight: 500,
       }"

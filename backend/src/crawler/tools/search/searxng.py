@@ -24,6 +24,11 @@ from ...config import get_settings
 from ...observability.logger import get_logger
 from .base import SearchHit
 
+# Note: SearXNG runs as a docker-internal service (`searxng:8080`). We do NOT
+# route through the VPN proxy because the VPN exit node can't resolve
+# compose-internal hostnames. SearXNG itself proxies upstream search engines
+# through whatever VPN config it has internally.
+
 _log = get_logger(__name__)
 
 

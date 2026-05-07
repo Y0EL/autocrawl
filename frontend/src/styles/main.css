@@ -1,10 +1,8 @@
-@import '@fontsource/ibm-plex-sans/400.css';
-@import '@fontsource/ibm-plex-sans/500.css';
-@import '@fontsource/ibm-plex-sans/600.css';
-@import '@fontsource/ibm-plex-sans/700.css';
-@import '@fontsource/ibm-plex-mono/400.css';
-@import '@fontsource/ibm-plex-mono/500.css';
-@import '@fontsource/ibm-plex-mono/600.css';
+@import '@fontsource-variable/newsreader/opsz.css';
+@import '@fontsource-variable/newsreader/opsz-italic.css';
+@import '@fontsource-variable/bricolage-grotesque/index.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+@import './tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -15,14 +13,23 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     height: 100%;
+    background-color: rgb(var(--paper));
+    color: rgb(var(--ink));
   }
 
   body {
     @apply font-sans antialiased;
-    @apply bg-white text-base-700;
-    @apply dark:bg-base-950 dark:text-base-200;
+    background-color: rgb(var(--paper));
+    color: rgb(var(--ink));
     height: 100%;
     margin: 0;
+    /* Bricolage Grotesque has a WONK axis (0..1) — subtle irregularities
+     * that read as hand-drawn rather than computer-generated. We dial it
+     * to 0.4 across the body so the whole UI feels written-by-a-human
+     * without becoming literally wonky. */
+    font-variation-settings: 'wdth' 100, 'opsz' 16, 'wonk' 0.4;
+    font-feature-settings: 'liga' 1, 'dlig' 1, 'ss01' 1;
+    text-rendering: optimizeLegibility;
   }
 
   #app {
@@ -31,222 +38,447 @@
   }
 
   ::selection {
-    @apply bg-accent-500/40 text-base-950;
+    background-color: rgb(var(--ink) / 0.85);
+    color: rgb(var(--paper));
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
-
   ::-webkit-scrollbar-track {
-    @apply bg-transparent;
+    background: transparent;
   }
-
   ::-webkit-scrollbar-thumb {
-    @apply bg-base-200 dark:bg-base-700;
+    background: rgb(var(--ink) / 0.18);
+    border-radius: 0;
   }
-
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-base-300 dark:bg-base-600;
+    background: rgb(var(--ink) / 0.32);
   }
 
+  /* Editorial paper grain — ultra-subtle so it disappears at distance but
+   * gives the page tactile presence. Not a grid, deliberately. */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background-image: linear-gradient(to right, rgba(60, 71, 84, 0.05) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(60, 71, 84, 0.05) 1px, transparent 1px);
-    background-size: 24px 24px;
-    opacity: 0.7;
+    background-image:
+      radial-gradient(circle at 25% 30%, rgb(var(--ink) / 0.018) 0, transparent 1px),
+      radial-gradient(circle at 75% 70%, rgb(var(--ink) / 0.022) 0, transparent 1px);
+    background-size: 3px 3px, 5px 5px;
+    background-position: 0 0, 1px 1px;
+    mix-blend-mode: multiply;
+    opacity: 0.6;
   }
 
-  .dark body::before {
-    background-image: linear-gradient(to right, rgba(143, 153, 168, 0.06) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(143, 153, 168, 0.06) 1px, transparent 1px);
-    opacity: 0.6;
+  h1, h2, h3, h4 {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-feature-settings: 'ss01', 'ss02';
+    color: rgb(var(--ink));
+    font-variation-settings: 'opsz' 36;
+    letter-spacing: -0.01em;
+  }
+
+  /* Tabular numerals + slashed zero on mono — ledger alignment, and a 0
+   * that can never be mistaken for an O. */
+  .font-mono,
+  .tnum,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'zero', 'ss19';
   }
 }
 
 @layer components {
-  .hud-panel {
-    @apply relative border border-base-200 bg-white dark:border-base-700 dark:bg-base-900;
+  /* ---------------------------------------------------------------- */
+  /* Editorial primitives                                              */
+  /* ---------------------------------------------------------------- */
+
+  .rule {
+    border-color: rgb(var(--rule) / var(--rule-alpha));
+  }
+  .rule-strong {
+    border-color: rgb(var(--rule) / var(--rule-strong-alpha));
+  }
+  .rule-t  { border-top: 1px solid rgb(var(--rule) / var(--rule-alpha)); }
+  .rule-r  { border-right: 1px solid rgb(var(--rule) / var(--rule-alpha)); }
+  .rule-b  { border-bottom: 1px solid rgb(var(--rule) / var(--rule-alpha)); }
+  .rule-l  { border-left: 1px solid rgb(var(--rule) / var(--rule-alpha)); }
+  .rule-b-strong { border-bottom: 2px solid rgb(var(--rule) / var(--rule-strong-alpha)); }
+
+  .dot-rule {
+    background-image: linear-gradient(
+      to right,
+      rgb(var(--rule) / var(--rule-strong-alpha)) 0 1px,
+      transparent 1px 4px
+    );
+    background-size: 4px 1px;
+    background-repeat: repeat-x;
+    background-position: 0 50%;
+    height: 1px;
+    border: 0;
   }
 
-  .hud-panel-head {
-    @apply flex items-center justify-between border-b border-base-200 bg-base-50 px-3 py-2 dark:border-base-700 dark:bg-base-800;
+  /* Section labels — editorial small caps in Newsreader. The single
+   * biggest move that pulls the UI away from "terminal/coding" mood
+   * toward "magazine masthead" mood. */
+  .label {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-variant-caps: all-small-caps;
+    font-feature-settings: 'smcp' 1, 'c2sc' 1;
+    font-variation-settings: 'opsz' 16;
+    font-weight: 500;
+    font-size: 0.875rem;          /* 14px small caps reads ~10px x-height */
+    letter-spacing: 0.04em;
+    color: rgb(var(--ink-mute));
+    line-height: 1;
   }
 
-  .hud-panel-title {
-    @apply font-mono text-2xs font-medium uppercase tracking-ops text-base-500 dark:text-base-400;
+  .label-ink {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-variant-caps: all-small-caps;
+    font-feature-settings: 'smcp' 1, 'c2sc' 1;
+    font-variation-settings: 'opsz' 16;
+    font-weight: 600;
+    font-size: 0.875rem;
+    letter-spacing: 0.04em;
+    color: rgb(var(--ink));
+    line-height: 1;
   }
 
-  .hud-panel-body {
-    @apply p-3;
+  /* Mono editorial code — for build numbers, version stamps, key combos
+   * (⌘K), short codes like "30D" / "N=6". Visually marked as a stamp,
+   * not a label. */
+  .label-mono {
+    @apply font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    color: rgb(var(--ink-mute));
   }
 
-  .hud-btn {
-    @apply inline-flex select-none items-center justify-center gap-2 border border-base-300 bg-white px-3 py-1.5 font-mono text-2xs font-medium uppercase tracking-ops text-base-700 transition-colors hover:border-base-400 hover:bg-base-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-base-700 dark:bg-base-900 dark:text-base-200 dark:hover:border-base-600 dark:hover:bg-base-800;
+  .smallcaps {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.08em;
+    font-weight: 500;
   }
 
-  .hud-btn-primary {
-    @apply hud-btn border-accent-600 bg-accent-500 text-base-950 hover:border-accent-700 hover:bg-accent-400 dark:border-accent-500 dark:bg-accent-500 dark:text-base-950 dark:hover:bg-accent-400;
+  .display {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-feature-settings: 'ss01', 'ss02';
+    font-variation-settings: 'opsz' 36;
+    letter-spacing: var(--tracking-tight);
   }
 
-  .hud-btn-danger {
-    @apply hud-btn border-crit-600 bg-crit-500 text-white hover:bg-crit-600 dark:border-crit-600 dark:bg-crit-600 dark:hover:bg-crit-500;
+  .num-display {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-feature-settings: 'tnum', 'lnum', 'ss01';
+    font-variant-numeric: tabular-nums lining-nums;
+    font-variation-settings: 'opsz' 60;
+    letter-spacing: var(--tracking-tight);
   }
 
-  .hud-btn-ghost {
-    @apply hud-btn border-transparent bg-transparent hover:border-base-200 dark:hover:border-base-700;
+  .dropcap::first-letter {
+    font-family: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+    font-weight: 500;
+    font-size: 3.6em;
+    line-height: 0.85;
+    float: left;
+    margin: 0.08em 0.14em 0 0;
+    color: rgb(var(--ink));
+    font-variation-settings: 'opsz' 72;
+    font-style: italic;
   }
 
-  .hud-input {
-    @apply w-full border border-base-300 bg-white px-3 py-1.5 font-mono text-xs text-base-800 placeholder-base-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-base-700 dark:bg-base-900 dark:text-base-100 dark:placeholder-base-500;
+  .dropcap-vermilion::first-letter {
+    color: rgb(var(--vermilion));
   }
 
-  .hud-chip {
-    @apply inline-flex items-center gap-1 border border-base-300 bg-base-50 px-1.5 py-0.5 font-mono text-2xs font-medium uppercase tracking-ops text-base-700 dark:border-base-700 dark:bg-base-800 dark:text-base-300;
+  /* Editorial card — rule-only, no fill, no shadow. */
+  .card {
+    @apply relative;
+    border: 1px solid rgb(var(--rule) / var(--rule-alpha));
+    background: transparent;
   }
 
-  .hud-pill {
-    @apply inline-flex items-center gap-1.5 border px-2 py-0.5 font-mono text-2xs font-medium uppercase tracking-ops;
+  .card-inset {
+    background: rgb(var(--paper-2) / 0.5);
   }
 
-  .hud-pill-ok {
-    @apply hud-pill border-ok-600/30 bg-ok-500/10 text-ok-600 dark:border-ok-500/30 dark:text-ok-400;
+  .card-head {
+    @apply flex items-baseline justify-between px-4 py-3;
+    border-bottom: 1px solid rgb(var(--rule) / var(--rule-alpha));
   }
 
-  .hud-pill-warn {
-    @apply hud-pill border-warn-600/30 bg-warn-500/10 text-warn-600 dark:border-warn-500/30 dark:text-warn-400;
+  /* Ledger table — flush in page, no card frame. */
+  .ledger {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
   }
 
-  .hud-pill-crit {
-    @apply hud-pill border-crit-600/30 bg-crit-500/10 text-crit-600 dark:border-crit-500/30 dark:text-crit-400;
+  .ledger thead th {
+    @apply font-mono uppercase text-left;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    color: rgb(var(--ink-mute));
+    padding: 8px 12px;
+    border-bottom: 2px solid rgb(var(--rule) / var(--rule-strong-alpha));
+    background: transparent;
   }
 
-  .hud-pill-info {
-    @apply hud-pill border-info-600/30 bg-info-500/10 text-info-600 dark:border-info-500/30 dark:text-info-400;
+  .ledger tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgb(var(--rule) / var(--rule-alpha));
+    color: rgb(var(--ink));
+    vertical-align: middle;
   }
 
-  .hud-pill-accent {
-    @apply hud-pill border-accent-600/40 bg-accent-500/10 text-accent-600 dark:border-accent-500/30 dark:text-accent-300;
+  .ledger tbody tr:hover td {
+    background: rgb(var(--paper-2) / 0.6);
   }
 
-  .hud-pill-muted {
-    @apply hud-pill border-base-300 bg-base-50 text-base-600 dark:border-base-700 dark:bg-base-800 dark:text-base-400;
+  /* Pills (used sparingly — most of the time a small label is enough) */
+  .pill {
+    @apply inline-flex items-center gap-1.5 font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    padding: 2px 8px;
+    border: 1px solid rgb(var(--rule) / var(--rule-strong-alpha));
+    color: rgb(var(--ink));
+    border-radius: 999px;
+    background: transparent;
+  }
+  .pill-ok      { border-color: rgb(var(--ok) / 0.5);        color: rgb(var(--ok)); }
+  .pill-warn    { border-color: rgb(var(--warn) / 0.5);      color: rgb(var(--warn)); }
+  .pill-crit    { border-color: rgb(var(--crit) / 0.5);      color: rgb(var(--crit)); }
+  .pill-accent  { border-color: rgb(var(--accent-ink) / 0.5);color: rgb(var(--accent-ink)); }
+
+  /* Tiny status dots */
+  .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 0 1px rgb(var(--paper));
+  }
+  .dot-ok       { color: rgb(var(--ok)); }
+  .dot-warn     { color: rgb(var(--warn)); }
+  .dot-crit     { color: rgb(var(--crit)); }
+  .dot-accent   { color: rgb(var(--accent-ink)); }
+  .dot-vermilion{ color: rgb(var(--vermilion)); }
+
+  /* Buttons — ink-outlined editorial, no fills. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-mono uppercase select-none;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    padding: 8px 14px;
+    border: 1px solid rgb(var(--ink));
+    color: rgb(var(--ink));
+    background: transparent;
+    border-radius: 0;
+    transition: background-color var(--dur-160) var(--ease-paper),
+                color var(--dur-160) var(--ease-paper);
+  }
+  .btn:hover {
+    background: rgb(var(--ink));
+    color: rgb(var(--paper));
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: transparent;
+    color: rgb(var(--ink));
   }
 
-  .hud-led {
-    @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full;
+  .btn-accent {
+    border-color: rgb(var(--accent-ink));
+    color: rgb(var(--accent-ink));
+  }
+  .btn-accent:hover {
+    background: rgb(var(--accent-ink));
+    color: rgb(var(--paper));
   }
 
-  .hud-led-ok {
-    @apply hud-led bg-ok-500 text-ok-500 shadow-[0_0_8px_rgba(34,197,94,0.6)];
+  .btn-ghost {
+    border-color: transparent;
+    color: rgb(var(--ink-2));
+  }
+  .btn-ghost:hover {
+    background: rgb(var(--paper-2));
+    color: rgb(var(--ink));
   }
 
-  .hud-led-warn {
-    @apply hud-led bg-warn-500 text-warn-500 shadow-[0_0_8px_rgba(245,158,11,0.6)];
+  .btn-danger {
+    border-color: rgb(var(--vermilion));
+    color: rgb(var(--vermilion));
+  }
+  .btn-danger:hover {
+    background: rgb(var(--vermilion));
+    color: rgb(var(--paper));
   }
 
-  .hud-led-crit {
-    @apply hud-led bg-crit-500 text-crit-500 shadow-[0_0_8px_rgba(239,68,68,0.6)];
+  /* Inputs */
+  .input {
+    @apply w-full font-mono;
+    font-size: var(--text-xs);
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid rgb(var(--rule) / var(--rule-alpha));
+    color: rgb(var(--ink));
+    border-radius: 0;
+  }
+  .input::placeholder { color: rgb(var(--ink-mute)); }
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--ink));
   }
 
-  .hud-led-accent {
-    @apply hud-led bg-accent-500 text-accent-500 shadow-[0_0_8px_rgba(255,184,0,0.6)];
+  /* Editorial grid helpers */
+  .editorial-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 24px;
   }
 
-  .hud-led-muted {
-    @apply hud-led bg-base-400 dark:bg-base-500;
-  }
+  /* ---------------------------------------------------------------- */
+  /* Backwards-compatible HUD shims                                    */
+  /* Pages not yet ported still reference these. They render in the   */
+  /* paper palette so nothing looks broken before Phase D rewrites.   */
+  /* ---------------------------------------------------------------- */
 
-  .hud-table {
-    @apply w-full border-collapse text-xs;
+  .hud-panel,
+  .hud-glass,
+  .hud-glass-strong {
+    @apply card;
   }
+  .hud-panel-head { @apply card-head; }
+  .hud-panel-title { @apply label; }
+  .hud-panel-body { padding: 16px; }
 
-  .hud-table thead th {
-    @apply border-b border-base-200 bg-base-50 px-3 py-2 text-left font-mono text-2xs font-medium uppercase tracking-ops text-base-500 dark:border-base-700 dark:bg-base-800 dark:text-base-400;
-  }
+  .hud-btn { @apply btn btn-ghost; }
+  .hud-btn-primary { @apply btn btn-accent; }
+  .hud-btn-danger { @apply btn btn-danger; }
+  .hud-btn-ghost { @apply btn btn-ghost; }
+  .hud-input { @apply input; }
 
-  .hud-table tbody td {
-    @apply border-b border-base-100 px-3 py-2 align-middle text-base-700 dark:border-base-800 dark:text-base-200;
-  }
+  .hud-chip,
+  .hud-pill,
+  .hud-pill-muted { @apply pill; }
+  .hud-pill-ok      { @apply pill pill-ok; }
+  .hud-pill-warn    { @apply pill pill-warn; }
+  .hud-pill-crit    { @apply pill pill-crit; }
+  .hud-pill-info    { @apply pill pill-accent; }
+  .hud-pill-accent  { @apply pill pill-accent; }
 
-  .hud-table tbody tr:hover {
-    @apply bg-accent-500/5 dark:bg-accent-500/10;
-  }
+  .hud-led        { @apply dot; }
+  .hud-led-ok     { @apply dot dot-ok; }
+  .hud-led-warn   { @apply dot dot-warn; }
+  .hud-led-crit   { @apply dot dot-crit; }
+  .hud-led-accent { @apply dot dot-accent; }
+  .hud-led-muted  { @apply dot; color: rgb(var(--ink-mute)); }
+
+  .hud-table { @apply ledger; }
 
   .hud-tab {
-    @apply relative cursor-pointer border-b-2 border-transparent px-3 py-2 font-mono text-2xs font-medium uppercase tracking-ops text-base-500 transition-colors hover:text-base-700 dark:text-base-400 dark:hover:text-base-100;
+    @apply font-mono uppercase cursor-pointer;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    color: rgb(var(--ink-mute));
+    padding: 8px 12px;
+    border-bottom: 2px solid transparent;
+    transition: color var(--dur-160) var(--ease-paper),
+                border-color var(--dur-160) var(--ease-paper);
   }
+  .hud-tab:hover { color: rgb(var(--ink)); }
+  .hud-tab-active { color: rgb(var(--ink)); border-color: rgb(var(--ink)); }
 
-  .hud-tab-active {
-    @apply border-accent-500 text-accent-600 dark:text-accent-300;
-  }
-
-  .hud-divider {
-    @apply h-px w-full bg-base-200 dark:bg-base-700;
-  }
-
-  .hud-mono-num {
-    @apply font-mono tabular-nums;
-  }
-
-  .hud-bracket-l::before {
-    content: '[';
-    @apply mr-1 text-base-400 dark:text-base-500;
-  }
-
-  .hud-bracket-r::after {
-    content: ']';
-    @apply ml-1 text-base-400 dark:text-base-500;
-  }
-
-  .hud-stripe {
-    background-image: repeating-linear-gradient(
-      135deg,
-      transparent,
-      transparent 4px,
-      rgba(255, 184, 0, 0.06) 4px,
-      rgba(255, 184, 0, 0.06) 6px
-    );
-  }
-
+  .hud-divider { height: 1px; background: rgb(var(--rule) / var(--rule-alpha)); }
+  .hud-mono-num { @apply font-mono tabular-nums; }
+  .hud-stripe { background: transparent; }
   .hud-context-item {
-    @apply block w-full px-3 py-1.5 text-left font-mono text-2xs uppercase tracking-ops text-base-200 transition-colors hover:bg-accent-500/15 hover:text-accent-300;
+    @apply block w-full px-3 py-1.5 font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-ops);
+    color: rgb(var(--ink));
+    background: transparent;
+  }
+  .hud-context-item:hover {
+    background: rgb(var(--paper-2));
   }
 
-  .hud-map-vignette {
-    background: radial-gradient(
-      ellipse at center,
-      transparent 55%,
-      rgba(6, 8, 13, 0.45) 90%,
-      rgba(6, 8, 13, 0.75) 100%
-    );
-  }
-
+  .hud-bracket-l::before { content: ''; }
+  .hud-bracket-r::after { content: ''; }
+  .hud-map-vignette { background: transparent; }
   .hud-map-btn {
-    @apply pointer-events-auto flex h-8 w-8 items-center justify-center border border-cyan-400/30 bg-[#06080d]/85 text-cyan-300 backdrop-blur transition-colors hover:border-cyan-400/60 hover:bg-cyan-500/15 hover:text-cyan-100 focus:outline-none focus:ring-1 focus:ring-cyan-400;
+    @apply btn btn-ghost;
+    width: 32px; height: 32px; padding: 0;
+    background: rgb(var(--paper));
+    border: 1px solid rgb(var(--rule) / var(--rule-strong-alpha));
   }
+  .hud-glass-edge { box-shadow: none; }
+
+  /* ---------------------------------------------------------------- */
+  /* Motion                                                            */
+  /* ---------------------------------------------------------------- */
+
+  @keyframes paper-fade-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .paper-fade-up { animation: paper-fade-up var(--dur-240) var(--ease-paper); }
+
+  @keyframes ink-blink {
+    0%, 60%, 100% { opacity: 1; }
+    61%, 99%      { opacity: 0; }
+  }
+  .ink-blink { animation: ink-blink 1.4s steps(1) infinite; }
+
+  @keyframes marker-breathe {
+    0%, 100% { opacity: 0.55; transform: scale(0.92); }
+    50%      { opacity: 0.95; transform: scale(1.06); }
+  }
+  .marker-breathe { animation: marker-breathe 1.6s var(--ease-paper) infinite; }
+
+  @keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+  .hud-ticker-track { animation: ticker-scroll 60s linear infinite; }
+  .hud-ticker-track:hover { animation-play-state: paused; }
+
+  /* Vermilion bullet that fades to ink over 4s — for live-feed new rows. */
+  @keyframes vermilion-fade {
+    0%   { color: rgb(var(--vermilion)); }
+    100% { color: rgb(var(--ink-mute)); }
+  }
+  .vermilion-fade { animation: vermilion-fade 4s var(--ease-paper) forwards; }
+
+  .hud-breathe { animation: marker-breathe 4.5s ease-in-out infinite; }
 }
 
 @layer utilities {
-  /* Hide @antv/l7 watermark/attribution. Class names vary across versions
-     so we cast a wide net. */
-  .l7-control-logo,
-  .l7-control-logoControl,
-  .l7-logo,
-  [class*='l7-logo'],
-  [class*='logoControl'],
-  .amap-logo,
-  .amap-copyright {
-    display: none !important;
-  }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { scrollbar-width: none; }
 
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
+  .text-ink       { color: rgb(var(--ink)); }
+  .text-ink-2     { color: rgb(var(--ink-2)); }
+  .text-ink-mute  { color: rgb(var(--ink-mute)); }
+  .text-accent-ink{ color: rgb(var(--accent-ink)); }
+  .text-vermilion { color: rgb(var(--vermilion)); }
+  .text-gold-leaf { color: rgb(var(--gold-leaf)); }
+  .bg-paper       { background-color: rgb(var(--paper)); }
+  .bg-paper-2     { background-color: rgb(var(--paper-2)); }
+  .bg-paper-edge  { background-color: rgb(var(--paper-edge)); }
+  .bg-ink         { background-color: rgb(var(--ink)); }
+  .bg-accent-ink  { background-color: rgb(var(--accent-ink)); }
+  .bg-vermilion   { background-color: rgb(var(--vermilion)); }
+  .border-rule    { border-color: rgb(var(--rule) / var(--rule-alpha)); }
+  .border-rule-strong { border-color: rgb(var(--rule) / var(--rule-strong-alpha)); }
+  .border-ink     { border-color: rgb(var(--ink)); }
 }

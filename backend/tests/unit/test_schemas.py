@@ -94,14 +94,14 @@ class TestSourceProvenance:
             pdf_sha256="abc123def",
             page=7,
             position=3,
-            extraction_method="surya_ocr",
+            extraction_method="vlm_ocr",
             confidence=0.92,
             context_snippet="...AS#312 Guangzhou Institute Defense Hall B...",
         )
         assert p.type == "pdf"
         assert p.page == 7
         assert p.position == 3
-        assert p.extraction_method == "surya_ocr"
+        assert p.extraction_method == "vlm_ocr"
 
     def test_invalid_type_rejected(self):
         with pytest.raises(ValidationError):

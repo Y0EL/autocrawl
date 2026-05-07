@@ -54,11 +54,13 @@ class ConcurrencyCaps(BaseSettings):
         so we cap stages that fan out wide.
         """
         if provider == "ollama":
+            # Caps assume the Ollama server has OLLAMA_NUM_PARALLEL>=8 set.
+            # Drop these back to (2, 8, 8) on a single-consumer-GPU host.
             return ConcurrencyCaps(
-                EXPO_DISCOVERY_CONCURRENCY=min(self.expo_discovery, 2),
+                EXPO_DISCOVERY_CONCURRENCY=min(self.expo_discovery, 4),
                 EXHIBITOR_EXTRACTION_CONCURRENCY=self.exhibitor_extraction,
-                VENDOR_RESOLUTION_CONCURRENCY=min(self.vendor_resolution, 8),
-                ENRICHMENT_CONCURRENCY=min(self.enrichment, 8),
+                VENDOR_RESOLUTION_CONCURRENCY=min(self.vendor_resolution, 16),
+                ENRICHMENT_CONCURRENCY=min(self.enrichment, 16),
             )
         if provider == "groq":
             return ConcurrencyCaps(
@@ -86,15 +88,40 @@ class Settings(BaseSettings):
     # === LLM provider switch ===
     # `groq`   (default) → api.groq.com, free tier ~14400 req/day, LPU-fast,
     #                     OpenAI compatible. Default model llama-3.1-8b-instant.
-    # `ollama`           → self-hosted Ollama in the compose stack at
-    #                     http://ollama:11434, free, unlimited, fully local.
-    #                     Default model granite4.1:3b (IBM, Apache 2.0).
+    # `ollama`           → self-hosted Ollama, free, unlimited, fully local.
+    #                     Default model gpt-oss:20b (OpenAI OSS MoE, 20B/3.6B
+    #                     active params, native harmony tool/JSON output, fast
+    #                     on a single mid-range GPU thanks to MoE routing).
     # `openai`           → api.openai.com, billed (kept as escape hatch).
     llm_provider: str = Field(default="groq", alias="LLM_PROVIDER")
     llm_base_url: str = Field(default="", alias="LLM_BASE_URL")  # override; empty = use provider default
     groq_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="GROQ_BASE_URL")
     embedding_provider: str = Field(default="ollama", alias="EMBEDDING_PROVIDER")
     embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
+
+    # === Ollama-specific tuning ===
+    # num_ctx: context window. Lower = faster prefill. 8192 fits the typical
+    #          extraction prompt comfortably; bump to 16384+ only for long-doc
+    #          summarization. Default Ollama is 2048 which truncates prompts.
+    # num_predict: hard cap on output tokens per call. -1 = unlimited (slow).
+    #              Most extraction tasks finish well under 1024 tokens.
+    # keep_alive: how long to keep the model loaded in VRAM after a request.
+    #             "30m" avoids re-loading the model on each call (~10s cold).
+    # reasoning: Qwen3 / DeepSeek-R1 emit a long `<think>` block before the
+    #            actual answer. Disabling cuts latency 2-3× for extraction
+    #            work where the chain-of-thought isn't useful downstream.
+    ollama_num_ctx: int = Field(default=8192, alias="OLLAMA_NUM_CTX")
+    ollama_num_predict: int = Field(default=1024, alias="OLLAMA_NUM_PREDICT")
+    ollama_keep_alive: str = Field(default="30m", alias="OLLAMA_KEEP_ALIVE")
+    ollama_reasoning: bool = Field(default=False, alias="OLLAMA_REASONING")
+    # gpt-oss harmony format reads `Reasoning: low|medium|high` from the system
+    # prompt and dials chain-of-thought length accordingly. `low` is right for
+    # extraction-style work where we just want clean structured output.
+    # Empty string disables the prepend (use the model's built-in default).
+    ollama_reasoning_effort: str = Field(default="low", alias="OLLAMA_REASONING_EFFORT")
+    # If True, try strict json_schema first; default starts with raw_json_format
+    # because gpt-oss is reliable enough that this also wins on attempt 1.
+    ollama_structured_fast: bool = Field(default=True, alias="OLLAMA_STRUCTURED_FAST")
 
     # === Self-hosted services ===
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
@@ -122,21 +149,73 @@ class Settings(BaseSettings):
     browser_recycle_after: int = Field(default=50, alias="BROWSER_RECYCLE_AFTER")
 
     # === Model names ===
-    # Defaults assume LLM_PROVIDER=groq + EMBEDDING_PROVIDER=ollama.
-    # Override via env if you switch providers.
+    # Defaults target LLM_PROVIDER=ollama + gpt-oss:20b. The same model serves
+    # all three tiers because gpt-oss is MoE (3.6B active out of 20B), so its
+    # decode speed already matches a 7B dense model — no benefit splitting
+    # tiers across separate models. Use `OLLAMA_REASONING_EFFORT` to dial
+    # quality vs. latency per call.
     #
-    # Groq production model: llama-3.3-70b-versatile (used for both heavy and
-    # light to keep config simple and survive Groq deprecating smaller models).
-    # Ollama suggestions: granite4.1:3b for chat, granite-embedding:278m for vectors.
-    # OpenAI suggestions: gpt-4o-mini for light, gpt-4o for heavy.
-    openai_model_heavy: str = Field(default="llama-3.3-70b-versatile", alias="OPENAI_MODEL_HEAVY")
-    openai_model_light: str = Field(default="llama-3.3-70b-versatile", alias="OPENAI_MODEL_LIGHT")
-    openai_embedding_model: str = Field(default="granite-embedding:278m", alias="OPENAI_EMBEDDING_MODEL")
+    # Override per provider via env:
+    #   Groq:   llama-3.3-70b-versatile / same / same
+    #   OpenAI: gpt-4o / gpt-4o-mini / gpt-4o-mini
+    openai_model_heavy: str = Field(default="gpt-oss:20b", alias="OPENAI_MODEL_HEAVY")
+    openai_model_light: str = Field(default="gpt-oss:20b", alias="OPENAI_MODEL_LIGHT")
+    # Tiny tier — fast classifier-style calls (scope judgment, simple yes/no).
+    # Defaults to gpt-oss:20b; override to qwen2.5-coder:7b or similar small
+    # model if you need to free VRAM for other workloads.
+    openai_model_tiny: str = Field(default="gpt-oss:20b", alias="OPENAI_MODEL_TINY")
+    openai_embedding_model: str = Field(default="embeddinggemma:300m", alias="OPENAI_EMBEDDING_MODEL")
 
     # === Politeness & quotas ===
     per_domain_rps: float = Field(default=1.0, alias="PER_DOMAIN_RPS")
     global_request_timeout_seconds: int = Field(default=60, alias="GLOBAL_REQUEST_TIMEOUT_SECONDS")
     firecrawl_credit_threshold_pct: float = Field(default=10.0, alias="FIRECRAWL_CREDIT_THRESHOLD_PCT")
+
+    # === Phase 2 — Force multi-region & multilingual search ===
+    # When true, every `multi.search_all()` call fans out to Baidu / Naver /
+    # Yahoo Japan regardless of whether `region.detect_regions(query)` finds
+    # CJK characters in the query. Trades a few extra outbound requests per
+    # query for dramatically wider Asia coverage on English-only seeds.
+    enable_force_multilingual_search: bool = Field(
+        default=False, alias="ENABLE_FORCE_MULTILINGUAL_SEARCH"
+    )
+
+    # === Phase 2 — Redis-backed LLM concurrency queue ===
+    # Counting semaphore in Redis (one slot per tier) that every Ollama call
+    # acquires before `ainvoke()`. Prevents queue collapse when 4 parallel
+    # Browser-Use seeds + base-crawler embedding/light/heavy calls hammer the
+    # same Ollama daemon. Falls back to a process-local asyncio semaphore
+    # when Redis is unreachable, so single-process dev still works.
+    # Concurrency invariant: parallel_seeds <= llm_queue_vision_concurrency * 2.
+    llm_queue_enabled: bool = Field(default=True, alias="LLM_QUEUE_ENABLED")
+    llm_queue_vision_concurrency: int = Field(
+        default=2, alias="LLM_QUEUE_VISION_CONCURRENCY"
+    )
+    llm_queue_heavy_concurrency: int = Field(
+        default=2, alias="LLM_QUEUE_HEAVY_CONCURRENCY"
+    )
+    llm_queue_light_concurrency: int = Field(
+        default=4, alias="LLM_QUEUE_LIGHT_CONCURRENCY"
+    )
+    llm_queue_tiny_concurrency: int = Field(
+        default=8, alias="LLM_QUEUE_TINY_CONCURRENCY"
+    )
+    llm_queue_acquire_timeout_s: float = Field(
+        default=120.0, alias="LLM_QUEUE_ACQUIRE_TIMEOUT_S"
+    )
+
+    # === Phase 2 — Outbound proxy / VPN egress ===
+    # When `vpn_enabled=true` every outbound httpx call (search engines +
+    # preflight HEAD probes) is routed through `proxy_url`, and the agentic
+    # Chromium gets `--proxy-server=<proxy_url>`. The intended deployment
+    # uses Gluetun (qdm12/gluetun) as a SOCKS5/HTTP forwarder running in a
+    # sidecar container; see docker-compose.gluetun.yml. Default OFF — the
+    # base stack continues to use the host network unchanged.
+    vpn_enabled: bool = Field(default=False, alias="VPN_ENABLED")
+    proxy_url: str = Field(default="", alias="PROXY_URL")
+    proxy_max_consecutive_failures: int = Field(
+        default=3, alias="PROXY_MAX_CONSECUTIVE_FAILURES"
+    )
 
     # === OpenSERP (self-hosted SERP scraper) ===
     enable_openserp: bool = Field(default=False, alias="ENABLE_OPENSERP")
@@ -191,7 +270,10 @@ class Settings(BaseSettings):
     crawl4ai_browser: str = Field(default="chromium", alias="CRAWL4AI_BROWSER")
     crawl4ai_recycle_after: int = Field(default=100, alias="CRAWL4AI_RECYCLE_AFTER")
     crawl4ai_max_concurrent: int = Field(default=4, alias="CRAWL4AI_MAX_CONCURRENT")
-    crawl4ai_extraction_model: str = Field(default="gpt-4o-mini", alias="CRAWL4AI_EXTRACTION_MODEL")
+    # Empty = follow LLM_PROVIDER and reuse openai_model_light. Set explicitly
+    # only if you want crawl4ai to use a different model than the rest of the
+    # crawler (e.g. force gpt-4o-mini for extraction while chat runs on Ollama).
+    crawl4ai_extraction_model: str = Field(default="", alias="CRAWL4AI_EXTRACTION_MODEL")
 
     # === Katana (Go-based discovery booster, projectdiscovery/katana) ===
     # Subprocess wrapper. Discovery-only, extracts URLs from a vendor seed
@@ -204,6 +286,13 @@ class Settings(BaseSettings):
     katana_concurrency: int = Field(default=5, alias="KATANA_CONCURRENCY")
     katana_rate_limit_per_second: int = Field(default=2, alias="KATANA_RATE_LIMIT_PER_SECOND")
     katana_depth: int = Field(default=2, alias="KATANA_DEPTH")
+
+    # === Storage backend ===
+    # JSON files under data/reports are always the source of truth. Postgres
+    # is an opt-in secondary index used by the API/dashboard for fast queries
+    # and joins. Default off — set PERSIST_TO_DB=true (compose already does
+    # this) to populate the DB so the frontend has data to render.
+    persist_to_db: bool = Field(default=False, alias="PERSIST_TO_DB")
 
     # === Phase gating ===
     phase_2_vendor_threshold: int = Field(default=100, alias="PHASE_2_VENDOR_THRESHOLD")
@@ -240,7 +329,18 @@ class Settings(BaseSettings):
     # === PDF brochure extraction ===
     pdf_discovery_enabled: bool = Field(default=True, alias="PDF_DISCOVERY_ENABLED")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
-    surya_device: str = Field(default="auto", alias="SURYA_DEVICE")  # auto | cpu | cuda | mps
+    # OCR fallback for scanned PDFs uses Ollama's vision endpoint with this
+    # model. Default `gemma4:e4b` is multimodal, fast, and already pulled for
+    # the agentic crawler — no extra GPU footprint, no Surya weight downloads.
+    # Bump to `gemma4:26b` or `gemma4:31b` for higher OCR fidelity at cost of
+    # ~5× slower per-page inference.
+    ocr_vlm_model: str = Field(default="gemma4:e4b", alias="OCR_VLM_MODEL")
+    # Page render DPI for the OCR rasterization. 200 = good balance, 300+ for
+    # small text or dense brochures. Higher DPI = larger image = slower VLM.
+    ocr_render_dpi: int = Field(default=200, alias="OCR_RENDER_DPI")
+    # Per-page VLM call timeout in seconds. e4b at 200 DPI typically returns
+    # in 5-15s; bump if you switch to gemma4:31b or use very high DPI.
+    ocr_page_timeout: int = Field(default=60, alias="OCR_PAGE_TIMEOUT")
     pdf_extraction_concurrency: int = Field(default=4, alias="PDF_EXTRACTION_CONCURRENCY")
     max_pdfs_per_expo: int = Field(default=10, alias="MAX_PDFS_PER_EXPO")
     pdf_max_size_mb: int = Field(default=50, alias="PDF_MAX_SIZE_MB")

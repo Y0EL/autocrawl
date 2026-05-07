@@ -31,7 +31,7 @@ const option = computed(() => ({
     ...tooltipDefaults(isDark.value),
     trigger: 'item',
     formatter: (p: { name: string; value: number; percent: number }) =>
-      `<span style="font-family:IBM Plex Mono,monospace">${p.name.toUpperCase()}: <b>${p.value}</b> (${p.percent}%)</span>`,
+      `<span style="font-family:JetBrains Mono Variable,monospace">${p.name.toUpperCase()}: <b>${p.value}</b> (${p.percent}%)</span>`,
   },
   legend: {
     orient: 'vertical',
@@ -43,7 +43,7 @@ const option = computed(() => ({
     itemGap: 10,
     textStyle: {
       color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
-      fontFamily: 'IBM Plex Mono, monospace',
+      fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
       fontSize: 10,
     },
     formatter: (name: string) => (labelMap[name] ?? name).toUpperCase(),
@@ -62,7 +62,7 @@ const option = computed(() => ({
         show: true,
         position: 'inside',
         color: '#0E1218',
-        fontFamily: 'IBM Plex Mono, monospace',
+        fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
         fontSize: 10,
         fontWeight: 600,
         formatter: '{d}%',

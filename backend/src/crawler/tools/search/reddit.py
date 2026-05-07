@@ -18,6 +18,7 @@ import httpx
 
 from ...config import get_settings
 from ...observability.logger import get_logger
+from ..http_proxy import proxied_client
 from .base import SearchHit
 
 _log = get_logger(__name__)
@@ -96,7 +97,7 @@ async def search(query: str, *, max_results: int = 15) -> list[SearchHit]:
 
     per_sub = max(1, max_results // max(1, len(subs)))
     timeout = httpx.Timeout(15.0, connect=5.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with proxied_client(timeout=timeout, follow_redirects=True) as client:
         results = await asyncio.gather(
             *[_query_subreddit(client, sub, query, per_sub) for sub in subs],
             return_exceptions=True,

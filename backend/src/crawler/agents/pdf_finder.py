@@ -57,11 +57,13 @@ _POSITIVE_KEYWORDS = (
     "official_program",
     "program-book",
     "expolist",
-    "floor-plan",
-    "floorplan",
     "buyers-guide",
     "buyer-guide",
 )
+# NOTE: "floor-plan" / "floorplan" intentionally NOT positive — venue floor
+# plans (e.g. WSCC's PDF) list rooms, not vendors. Booth maps WITH vendor
+# names attached are rare; when they do exist they almost always also have
+# "exhibitor" in the URL, which is enough to score them positive.
 
 _NEGATIVE_KEYWORDS = (
     "terms",
@@ -106,6 +108,18 @@ _NEGATIVE_KEYWORDS = (
     "shipping",
     "freight",
     "venue-map",
+    "floor-plan",
+    "floorplan",
+    "floor_plan",
+    "room-map",
+    "room-layout",
+    "facility-map",
+    "facility-guide",
+    "site-plan",
+    "siteplan",
+    "capacity-chart",
+    "meeting-room",
+    "meeting_room",
     "parking",
     "directions",
     "translator",
@@ -177,17 +191,24 @@ async def _scrape_pdf_links_from_page(page_url: str) -> list[str]:
 
 
 async def _targeted_search_pdf(expo_name: str, *, per_source: int = 6) -> list[str]:
-    from ..tools.search.multi import search_all
+    from ..tools.search.multi import PDF_FRIENDLY_ENGINES, search_all
 
+    # NOTE: do NOT search "floor plan filetype:pdf" — venue floor plans list
+    # rooms, not vendors, and the relevance scorer drops them anyway. Searching
+    # for them upstream just burns provider quota on PDFs we'll reject.
     queries = [
         f'"{expo_name}" exhibitor list filetype:pdf',
+        f'"{expo_name}" exhibitor directory filetype:pdf',
         f'"{expo_name}" brochure filetype:pdf',
-        f'"{expo_name}" floor plan filetype:pdf',
+        f'"{expo_name}" show guide filetype:pdf',
     ]
     found: set[str] = set()
     for q in queries:
         try:
-            hits = await search_all(q, per_source_limit=per_source)
+            # Skip Wikipedia/Reddit/HN/GitHub/ArXiv/etc — they don't honor the
+            # `filetype:` operator and never carry event brochures, so dispatching
+            # to them just burns a roundtrip per provider per query.
+            hits = await search_all(q, per_source_limit=per_source, engines=PDF_FRIENDLY_ENGINES)
         except Exception as e:  # noqa: BLE001
             errors_total.labels(stage="pdf_finder", category="search").inc()
             _log.debug("pdf_finder.search_failed", query=q, error=str(e))

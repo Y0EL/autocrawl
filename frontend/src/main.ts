@@ -1,201 +1,69 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'
-import { library } from '@fortawesome/fontawesome-svg-core'
-import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import {
-  faGaugeHigh,
-  faBuilding,
-  faFlagCheckered,
-  faFilePdf,
-  faClockRotateLeft,
-  faHeartPulse,
-  faGear,
-  faPlay,
-  faPause,
-  faStop,
-  faCircleNotch,
-  faSun,
-  faMoon,
-  faChevronLeft,
-  faChevronRight,
-  faChevronDown,
-  faAnglesLeft,
-  faAnglesRight,
-  faMagnifyingGlass,
-  faFilter,
-  faGlobe,
-  faChartLine,
-  faChartColumn,
-  faServer,
-  faDatabase,
-  faBolt,
-  faTriangleExclamation,
-  faCheck,
-  faXmark,
-  faLanguage,
-  faCode,
-  faArrowUpRightFromSquare,
-  faSpider,
-  faArrowsRotate,
-  faTowerBroadcast,
-  faSignal,
-  faShieldHalved,
-  faMicrochip,
-  faCircleInfo,
-  faSatelliteDish,
-  faCirclePlay,
-  faCircleCheck,
-  faCircleXmark,
-  faCircleExclamation,
-  faRotate,
-  faCopy,
-  faLink,
-  faPlus,
-  faMinus,
-  faEnvelope,
-  faPhone,
-  faLocationDot,
-  faIndustry,
-  faFlask,
-  faCircleNodes,
-  faTags,
-  faClock,
-  faCalendarDay,
-  faPaperPlane,
-  faUserShield,
-  faCrosshairs,
-  faTerminal,
-  faBars,
-  faRightFromBracket,
-  faSliders,
-  faTrash,
-  faPenToSquare,
-  faWandMagicSparkles,
-  faToggleOn,
-  faToggleOff,
-  faRobot,
-  faUpRightAndDownLeftFromCenter,
-  faDownLeftAndUpRightToCenter,
-} from '@fortawesome/free-solid-svg-icons'
-import {
-  faSun as farSun,
-  faMoon as farMoon,
-  faFile as farFile,
-} from '@fortawesome/free-regular-svg-icons'
-import {
-  faGithub,
-  faLinkedin,
-  faXTwitter,
-  faFacebook,
-  faYoutube,
-  faInstagram,
-} from '@fortawesome/free-brands-svg-icons'
-import maplibregl from 'maplibre-gl'
 import router from '@/router'
 import App from '@/App.vue'
+import Icon from '@/components/icons/Icon.vue'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import 'vue-sonner/style.css'
 import '@/styles/main.css'
 
-// @antv/l7-maps `Mapbox` provider expects `window.mapboxgl`. MapLibre is a
-// drop-in OSS fork of Mapbox GL JS (same API, no token), so aliasing it here
-// gives L7 a real interactive base map without requiring a paid Mapbox token.
-;(window as unknown as { mapboxgl: typeof maplibregl }).mapboxgl = maplibregl
+/* ------------------------------------------------------------------ */
+/* FontAwesome shim — kept temporarily so un-ported HUD pages compile. */
+/* All new code uses <Icon name="…" /> (lucide). FA goes away in       */
+/* Phase D when the last `<FaIcon>` is removed.                        */
+/* ------------------------------------------------------------------ */
+import { library } from '@fortawesome/fontawesome-svg-core'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import {
+  faGaugeHigh, faBuilding, faFlagCheckered, faFilePdf, faClockRotateLeft,
+  faHeartPulse, faGear, faPlay, faPause, faStop, faCircleNotch, faSun,
+  faMoon, faChevronLeft, faChevronRight, faChevronDown, faAnglesLeft,
+  faAnglesRight, faMagnifyingGlass, faFilter, faGlobe, faChartLine,
+  faChartColumn, faServer, faDatabase, faBolt, faTriangleExclamation,
+  faCheck, faXmark, faLanguage, faCode, faArrowUpRightFromSquare, faSpider,
+  faArrowsRotate, faTowerBroadcast, faSignal, faShieldHalved, faMicrochip,
+  faCircleInfo, faSatelliteDish, faCirclePlay, faCircleCheck, faCircleXmark,
+  faCircleExclamation, faRotate, faCopy, faLink, faPlus, faMinus, faEnvelope,
+  faPhone, faLocationDot, faIndustry, faFlask, faCircleNodes, faTags, faClock,
+  faCalendarDay, faPaperPlane, faUserShield, faCrosshairs, faTerminal, faBars,
+  faRightFromBracket, faSliders, faTrash, faPenToSquare, faWandMagicSparkles,
+  faToggleOn, faToggleOff, faRobot, faUpRightAndDownLeftFromCenter,
+  faDownLeftAndUpRightToCenter,
+} from '@fortawesome/free-solid-svg-icons'
+import {
+  faSun as farSun, faMoon as farMoon, faFile as farFile,
+} from '@fortawesome/free-regular-svg-icons'
+import {
+  faGithub, faLinkedin, faXTwitter, faFacebook, faYoutube, faInstagram,
+} from '@fortawesome/free-brands-svg-icons'
 
 library.add(
-  faGaugeHigh,
-  faBuilding,
-  faFlagCheckered,
-  faFilePdf,
-  faClockRotateLeft,
-  faHeartPulse,
-  faGear,
-  faPlay,
-  faPause,
-  faStop,
-  faCircleNotch,
-  faSun,
-  faMoon,
-  faChevronLeft,
-  faChevronRight,
-  faChevronDown,
-  faAnglesLeft,
-  faAnglesRight,
-  faMagnifyingGlass,
-  faFilter,
-  faGlobe,
-  faChartLine,
-  faChartColumn,
-  faServer,
-  faDatabase,
-  faBolt,
-  faTriangleExclamation,
-  faCheck,
-  faXmark,
-  faLanguage,
-  faCode,
-  faArrowUpRightFromSquare,
-  faSpider,
-  faArrowsRotate,
-  faTowerBroadcast,
-  faSignal,
-  faShieldHalved,
-  faMicrochip,
-  faCircleInfo,
-  faSatelliteDish,
-  faCirclePlay,
-  faCircleCheck,
-  faCircleXmark,
-  faCircleExclamation,
-  faRotate,
-  faCopy,
-  faLink,
-  faPlus,
-  faMinus,
-  faEnvelope,
-  faPhone,
-  faLocationDot,
-  faIndustry,
-  faFlask,
-  faCircleNodes,
-  faTags,
-  faClock,
-  faCalendarDay,
-  faPaperPlane,
-  faUserShield,
-  faCrosshairs,
-  faTerminal,
-  faBars,
-  faRightFromBracket,
-  faSliders,
-  faTrash,
-  faPenToSquare,
-  faWandMagicSparkles,
-  faToggleOn,
-  faToggleOff,
-  faRobot,
-  faUpRightAndDownLeftFromCenter,
+  faGaugeHigh, faBuilding, faFlagCheckered, faFilePdf, faClockRotateLeft,
+  faHeartPulse, faGear, faPlay, faPause, faStop, faCircleNotch, faSun,
+  faMoon, faChevronLeft, faChevronRight, faChevronDown, faAnglesLeft,
+  faAnglesRight, faMagnifyingGlass, faFilter, faGlobe, faChartLine,
+  faChartColumn, faServer, faDatabase, faBolt, faTriangleExclamation,
+  faCheck, faXmark, faLanguage, faCode, faArrowUpRightFromSquare, faSpider,
+  faArrowsRotate, faTowerBroadcast, faSignal, faShieldHalved, faMicrochip,
+  faCircleInfo, faSatelliteDish, faCirclePlay, faCircleCheck, faCircleXmark,
+  faCircleExclamation, faRotate, faCopy, faLink, faPlus, faMinus, faEnvelope,
+  faPhone, faLocationDot, faIndustry, faFlask, faCircleNodes, faTags, faClock,
+  faCalendarDay, faPaperPlane, faUserShield, faCrosshairs, faTerminal, faBars,
+  faRightFromBracket, faSliders, faTrash, faPenToSquare, faWandMagicSparkles,
+  faToggleOn, faToggleOff, faRobot, faUpRightAndDownLeftFromCenter,
   faDownLeftAndUpRightToCenter,
-  farSun,
-  farMoon,
-  farFile,
-  faGithub,
-  faLinkedin,
-  faXTwitter,
-  faFacebook,
-  faYoutube,
-  faInstagram,
+  farSun, farMoon, farFile,
+  faGithub, faLinkedin, faXTwitter, faFacebook, faYoutube, faInstagram,
 )
 
 async function bootstrap() {
-  // No mock layer — every request hits the real FastAPI backend.
   if (import.meta.env.DEV) {
     // eslint-disable-next-line no-console
-    console.log('[autocrawl] LIVE mode — backend at', import.meta.env.VITE_API_BASE ?? '/api')
+    console.log('[autocrawl] live mode — backend at', import.meta.env.VITE_API_BASE ?? '/api')
   }
 
   const app = createApp(App)
@@ -203,6 +71,7 @@ async function bootstrap() {
   app.use(router)
   app.use(VueQueryPlugin)
   app.component('FaIcon', FontAwesomeIcon)
+  app.component('Icon', Icon)
   app.mount('#app')
 }
 

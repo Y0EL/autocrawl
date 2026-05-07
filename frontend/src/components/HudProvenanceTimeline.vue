@@ -52,7 +52,7 @@ function formatDate(iso: string) {
   <ol class="relative flex flex-col gap-3 border-l border-base-200 pl-5 dark:border-base-700">
     <li v-for="(entry, idx) in entries" :key="idx" class="relative">
       <span
-        class="absolute -left-[26px] top-2 flex h-4 w-4 items-center justify-center border bg-white dark:bg-base-900"
+        class="absolute -left-[26px] top-2 flex h-4 w-4 items-center justify-center rounded-full border bg-white dark:bg-base-900"
         :style="{
           borderColor: iconFor(entry.type).color,
           color: iconFor(entry.type).color,

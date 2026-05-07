@@ -201,6 +201,135 @@ def pdf_test(
     asyncio.run(_run())
 
 
+@app.command(name="reset-state")
+def reset_state(
+    clear_pdfs: bool = typer.Option(False, "--clear-pdfs", help="Hapus juga cache PDF di data/pdfs/"),
+    clear_logs: bool = typer.Option(False, "--clear-logs", help="Hapus log JSONL di logs/"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Skip confirmation prompt"),
+) -> None:
+    """Bersihkan pekerjaan sisa sebelum run baru.
+
+    Default (aman, idempotent):
+      - Hapus lock Redis: autocrawl:active_run, taskclaim:*, discovery:recent_queries
+      - SQL: tutup runs yang finished_at IS NULL dengan notes='manual_reset'
+      - SQL: balikin exhibitor_refs status resolving/enriching -> extracted
+
+    File JSON di data/reports tidak disentuh (source of truth). Volume Postgres,
+    vector_db, dan PDF cache juga dipertahankan kecuali flag --clear-pdfs/--clear-logs.
+    """
+    configure_logging()
+    settings = get_settings()
+
+    summary_table = Table(title="Reset state — akan dijalankan")
+    summary_table.add_column("Action")
+    summary_table.add_column("Target")
+    summary_table.add_row("Redis DEL", "autocrawl:active_run")
+    summary_table.add_row("Redis DEL", "autocrawl:agentic_active_run")
+    summary_table.add_row("Redis DEL", "autocrawl:agentic_stop_requested")
+    summary_table.add_row("Redis SCAN+DEL", "taskclaim:*")
+    summary_table.add_row("Redis DEL", "discovery:recent_queries")
+    summary_table.add_row("Postgres UPDATE", "runs SET finished_at=NOW() WHERE finished_at IS NULL")
+    summary_table.add_row(
+        "Postgres UPDATE",
+        "exhibitor_refs SET status='extracted' WHERE status IN ('resolving','enriching')",
+    )
+    if clear_pdfs:
+        summary_table.add_row("rm -rf", str(settings.data_dir / "pdfs"))
+    if clear_logs:
+        summary_table.add_row("rm", f"{settings.log_dir}/*.jsonl")
+    console.print(summary_table)
+
+    if not yes:
+        if not typer.confirm("Lanjutkan?", default=False):
+            console.print("[yellow]Dibatalkan.[/yellow]")
+            raise typer.Exit(0)
+
+    async def _run() -> None:
+        from sqlalchemy import text as _text
+        from redis.asyncio import from_url
+
+        results: dict[str, int | str] = {}
+
+        # ---- Redis ----
+        try:
+            client = from_url(settings.redis_url, decode_responses=True)
+            try:
+                deleted_active = await client.delete("autocrawl:active_run")
+                deleted_agentic_active = await client.delete("autocrawl:agentic_active_run")
+                deleted_agentic_stop = await client.delete("autocrawl:agentic_stop_requested")
+                deleted_recent = await client.delete("discovery:recent_queries")
+                claim_count = 0
+                async for key in client.scan_iter("taskclaim:*", count=200):
+                    await client.delete(key)
+                    claim_count += 1
+                results["redis.active_run"] = int(deleted_active)
+                results["redis.agentic_active_run"] = int(deleted_agentic_active)
+                results["redis.agentic_stop_requested"] = int(deleted_agentic_stop)
+                results["redis.recent_queries"] = int(deleted_recent)
+                results["redis.taskclaim_keys"] = claim_count
+            finally:
+                await client.aclose()
+        except Exception as e:  # noqa: BLE001
+            results["redis.error"] = str(e)[:120]
+
+        # ---- Postgres ----
+        try:
+            from .db.engine import get_sessionmaker
+
+            sm = get_sessionmaker()
+            async with sm() as session:
+                runs_closed = await session.execute(
+                    _text(
+                        "UPDATE runs SET finished_at = NOW(), notes = 'manual_reset' "
+                        "WHERE finished_at IS NULL"
+                    )
+                )
+                refs_reset = await session.execute(
+                    _text(
+                        "UPDATE exhibitor_refs SET status = 'extracted', "
+                        "failure_category = NULL, failure_reason = NULL "
+                        "WHERE status IN ('resolving', 'enriching')"
+                    )
+                )
+                await session.commit()
+                results["db.runs_closed"] = runs_closed.rowcount or 0
+                results["db.refs_reset"] = refs_reset.rowcount or 0
+        except Exception as e:  # noqa: BLE001
+            results["db.error"] = str(e)[:120]
+
+        # ---- Filesystem (opt-in) ----
+        if clear_pdfs:
+            import shutil
+
+            pdf_dir = settings.data_dir / "pdfs"
+            try:
+                if pdf_dir.exists():
+                    shutil.rmtree(pdf_dir)
+                pdf_dir.mkdir(parents=True, exist_ok=True)
+                results["fs.pdfs_cleared"] = "ok"
+            except Exception as e:  # noqa: BLE001
+                results["fs.pdfs_error"] = str(e)[:120]
+
+        if clear_logs:
+            removed = 0
+            try:
+                for p in settings.log_dir.glob("*.jsonl"):
+                    p.unlink(missing_ok=True)
+                    removed += 1
+                results["fs.logs_removed"] = removed
+            except Exception as e:  # noqa: BLE001
+                results["fs.logs_error"] = str(e)[:120]
+
+        out = Table(title="Reset state — hasil")
+        out.add_column("Step")
+        out.add_column("Result", justify="right")
+        for k, v in results.items():
+            out.add_row(k, str(v))
+        console.print(out)
+
+    asyncio.run(_run())
+
+
 db_app = typer.Typer(help="Database commands.")
 app.add_typer(db_app, name="db")
 

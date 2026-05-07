@@ -160,13 +160,13 @@ async def _worker_extract(state: WorkerExpoState) -> dict:
     if _should_stop.is_set():
         return {"failures": [FailureRecord(where="extraction", error="aborted_by_user")]}
     active_workers.labels(stage="extraction").inc()
-    await emit_event(
-        node="worker_extract",
-        event="started",
-        run_id=run_id,
-        payload={"expo_id": expo.expo_id, "name": expo.name},
-    )
     try:
+        await emit_event(
+            node="worker_extract",
+            event="started",
+            run_id=run_id,
+            payload={"expo_id": expo.expo_id, "name": expo.name},
+        )
         async with sem:
             if _should_stop.is_set():
                 return {"failures": [FailureRecord(where="extraction", error="aborted_by_user")]}
@@ -202,14 +202,18 @@ async def _worker_resolve(state: WorkerExhibitorState) -> dict:
     run_id = state.get("run_id") or ""
     if _should_stop.is_set():
         return {"failures": [FailureRecord(where="resolution", error="aborted_by_user")]}
+    # Mode-A only after Phase 3: when `agentic_enrich_enabled=True`, the
+    # agentic crawler bypasses this stage entirely (vendors go to the
+    # `agentic:enrich:queue` Redis stream and are handled by the enrich
+    # worker pool, which can search-then-visit instead of WHOIS-only).
     active_workers.labels(stage="resolution").inc()
-    await emit_event(
-        node="worker_resolve",
-        event="started",
-        run_id=run_id,
-        payload={"name": ref.name[:80]},
-    )
     try:
+        await emit_event(
+            node="worker_resolve",
+            event="started",
+            run_id=run_id,
+            payload={"name": ref.name[:80]},
+        )
         async with sem:
             if _should_stop.is_set():
                 return {"failures": [FailureRecord(where="resolution", error="aborted_by_user")]}
@@ -297,13 +301,13 @@ async def _worker_pdf_extract(state: WorkerExpoState) -> dict:
     if _should_stop.is_set():
         return {}
     active_workers.labels(stage="pdf_extraction").inc()
-    await emit_event(
-        node="worker_pdf_extract",
-        event="started",
-        run_id=run_id,
-        payload={"expo_id": expo.expo_id},
-    )
     try:
+        await emit_event(
+            node="worker_pdf_extract",
+            event="started",
+            run_id=run_id,
+            payload={"expo_id": expo.expo_id},
+        )
         async with sem:
             if _should_stop.is_set():
                 return {}
@@ -357,13 +361,13 @@ async def _worker_enrich(state: WorkerVendorState) -> dict:
     if _should_stop.is_set():
         return {"failures": [FailureRecord(where="enrichment", error="aborted_by_user", url=str(vurl.canonical_url))]}
     active_workers.labels(stage="enrichment").inc()
-    await emit_event(
-        node="worker_enrich",
-        event="started",
-        run_id=run_id,
-        payload={"domain": vurl.domain},
-    )
     try:
+        await emit_event(
+            node="worker_enrich",
+            event="started",
+            run_id=run_id,
+            payload={"domain": vurl.domain},
+        )
         async with sem:
             if _should_stop.is_set():
                 return {"failures": [FailureRecord(where="enrichment", error="aborted_by_user", url=str(vurl.canonical_url))]}

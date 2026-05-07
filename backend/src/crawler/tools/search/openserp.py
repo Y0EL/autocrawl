@@ -26,6 +26,11 @@ from ...config import get_settings
 from ...observability.logger import get_logger
 from .base import SearchHit
 
+# Note: OpenSERP runs as a docker-internal service (`openserp:7000`). We do
+# NOT route through the VPN proxy because the VPN exit can't resolve
+# compose-internal hostnames. OpenSERP itself drives headless Chromium with
+# its own egress.
+
 _log = get_logger(__name__)
 
 

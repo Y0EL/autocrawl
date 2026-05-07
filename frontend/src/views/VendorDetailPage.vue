@@ -144,7 +144,7 @@ function copyJson() {
         <div class="flex flex-col gap-4 md:flex-row md:items-start">
           <div
             v-if="!data.logo_url"
-            class="flex h-20 w-20 shrink-0 items-center justify-center border border-accent-600 bg-accent-500/10 font-mono text-3xl font-bold text-accent-600 dark:text-accent-300"
+            class="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border border-accent-600 bg-accent-500/10 font-mono text-3xl font-bold text-accent-600 dark:text-accent-300"
           >
             {{ initials }}
           </div>
@@ -278,13 +278,23 @@ function copyJson() {
         </HudPanel>
 
         <HudPanel title="Alamat" code="ADDR">
-          <div v-if="data.address" class="flex flex-col gap-1 text-sm text-base-700 dark:text-base-200">
+          <div v-if="data.address && (data.address.raw || data.address.street || data.address.city || data.address.region || data.address.country)"
+               class="flex flex-col gap-1 text-sm text-base-700 dark:text-base-200">
             <span v-if="data.address.street">{{ data.address.street }}</span>
             <span v-if="data.address.city || data.address.region">
               {{ [data.address.city, data.address.region].filter(Boolean).join(', ') }}
             </span>
             <span v-if="data.address.country" class="font-medium">
               {{ data.address.country }} {{ data.address.postal_code ?? '' }}
+            </span>
+            <!-- Raw free-text fallback when structured fields are sparse
+                 (agentic-enriched vendors emit a single `raw` blob with
+                 the full street address). -->
+            <span
+              v-if="data.address.raw && !data.address.street && !data.address.city && !data.address.region"
+              class="whitespace-pre-line"
+            >
+              {{ data.address.raw }}
             </span>
           </div>
           <p v-else class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">

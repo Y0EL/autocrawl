@@ -331,7 +331,7 @@ function sourceBadgeLabel(src: string): string {
 
     <div
       v-if="errorMessage"
-      class="border border-crit-500/40 bg-crit-500/10 px-3 py-2 font-mono text-xs text-crit-700 dark:text-crit-300"
+      class="rounded-md border border-crit-500/40 bg-crit-500/10 px-3 py-2 font-mono text-xs text-crit-700 dark:text-crit-300"
     >
       {{ errorMessage }}
     </div>
@@ -539,7 +539,7 @@ function sourceBadgeLabel(src: string): string {
 
           <div
             v-if="suggestError"
-            class="border border-crit-500/40 bg-crit-500/10 px-3 py-2 font-mono text-xs text-crit-700 dark:text-crit-300"
+            class="rounded-md border border-crit-500/40 bg-crit-500/10 px-3 py-2 font-mono text-xs text-crit-700 dark:text-crit-300"
           >
             {{ suggestError }}
           </div>

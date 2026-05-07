@@ -40,7 +40,7 @@ const option = computed(() => {
       itemGap: 12,
       textStyle: {
         color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
-        fontFamily: 'IBM Plex Mono, monospace',
+        fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
         fontSize: 10,
       },
     },

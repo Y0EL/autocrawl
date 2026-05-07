@@ -1,68 +1,77 @@
+/**
+ * Autocrawl pen-and-ink chart theme.
+ *
+ * Re-export the same module shape the old `tactical` HUD theme used so
+ * existing chart consumers do not need code changes — only the values
+ * are different. Strokes, no fills. JetBrains Mono labels at 10/11px.
+ * Single ink + accent ink + vermilion punctuation, optional gold-leaf
+ * for tertiary series.
+ *
+ * Note: ECharts does not let us inject CSS variables at runtime, so
+ * these are baked literal hex values. They mirror tokens.css. If you
+ * change the token palette, mirror the changes here.
+ */
+
+const PAPER  = '#F4EFE6'
+const INK    = '#141210'
+const INK_2  = '#3A342D'
+const INK_M  = '#7A7167'
+const RULE   = 'rgba(20,18,16,0.18)'
+const RULE_S = 'rgba(20,18,16,0.32)'
+const ACCENT = '#10302E'
+const VERM   = '#B5321A'
+const GOLD   = '#9E7C2E'
+
 export const tactical = {
   bg: 'transparent',
   grid: {
-    line: {
-      dark: '#1E2632',
-      light: '#E5EAF1',
-    },
+    line: { dark: RULE, light: RULE },
   },
   text: {
-    primary: { dark: '#E5EAF1', light: '#2A3340' },
-    secondary: { dark: '#8F99A8', light: '#5C6878' },
-    muted: { dark: '#5C6878', light: '#8F99A8' },
+    primary:   { dark: INK,    light: INK },
+    secondary: { dark: INK_2,  light: INK_2 },
+    muted:     { dark: INK_M,  light: INK_M },
   },
   tooltip: {
-    bg: { dark: '#0E1218', light: '#FFFFFF' },
-    border: { dark: '#1E2632', light: '#BFC8D4' },
-    text: { dark: '#E5EAF1', light: '#2A3340' },
+    bg:     { dark: PAPER, light: PAPER },
+    border: { dark: RULE_S, light: RULE_S },
+    text:   { dark: INK,   light: INK },
   },
-  series: [
-    '#FFB800',
-    '#06B6D4',
-    '#22C55E',
-    '#A78BFA',
-    '#F472B6',
-    '#FB923C',
-    '#34D399',
-    '#60A5FA',
-    '#F59E0B',
-    '#EC4899',
-    '#10B981',
-    '#8B5CF6',
-  ],
-  accent: '#FFB800',
-  ok: '#22C55E',
-  warn: '#F59E0B',
-  crit: '#EF4444',
-  info: '#06B6D4',
+  series: [ACCENT, INK, INK_2, INK_M, GOLD, VERM],
+  accent: ACCENT,
+  ok:    '#166347',
+  warn:  GOLD,
+  crit:  VERM,
+  info:  ACCENT,
 }
 
-export function tooltipDefaults(isDark: boolean) {
+const FONT_MONO = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
+
+export function tooltipDefaults(_isDark: boolean) {
   return {
-    backgroundColor: isDark ? tactical.tooltip.bg.dark : tactical.tooltip.bg.light,
-    borderColor: isDark ? tactical.tooltip.border.dark : tactical.tooltip.border.light,
+    backgroundColor: PAPER,
+    borderColor: RULE_S,
     borderWidth: 1,
-    padding: [6, 10],
+    padding: [8, 12],
     textStyle: {
-      color: isDark ? tactical.tooltip.text.dark : tactical.tooltip.text.light,
+      color: INK,
       fontSize: 11,
-      fontFamily: 'IBM Plex Mono, monospace',
+      fontFamily: FONT_MONO,
     },
-    extraCssText: 'border-radius: 0; box-shadow: 0 0 0 1px rgba(255,184,0,0.15);',
+    extraCssText: 'border-radius: 0; box-shadow: 0 6px 18px rgba(0,0,0,0.06);',
   }
 }
 
-export function axisDefaults(isDark: boolean) {
-  const text = isDark ? tactical.text.secondary.dark : tactical.text.secondary.light
-  const grid = isDark ? tactical.grid.line.dark : tactical.grid.line.light
+export function axisDefaults(_isDark: boolean) {
   return {
     axisLabel: {
-      color: text,
+      color: INK_M,
       fontSize: 10,
-      fontFamily: 'IBM Plex Mono, monospace',
+      fontFamily: FONT_MONO,
+      fontFeatureSettings: 'tnum, lnum',
     },
-    axisLine: { lineStyle: { color: grid } },
-    axisTick: { lineStyle: { color: grid } },
-    splitLine: { lineStyle: { color: grid, type: [2, 4] as [number, number] } },
+    axisLine: { lineStyle: { color: RULE_S, width: 1 } },
+    axisTick: { show: false },
+    splitLine: { lineStyle: { color: RULE, type: [1, 4] as [number, number] } },
   }
 }

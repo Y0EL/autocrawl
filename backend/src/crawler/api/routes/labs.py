@@ -113,17 +113,12 @@ async def create_fusion(req: FusionCreateRequest) -> FusionRead:
     if len(vendors_orm) != len(req.vendor_ids):
         raise HTTPException(404, "Salah satu vendor ga ketemu")
 
-    missing_email = [v.vendor_id for v in vendors_orm if not _has_verified_email(v)]
-    if missing_email:
-        raise HTTPException(
-            400,
-            detail={
-                "error": "missing_verified_email",
-                "vendor_ids_without_email": missing_email,
-                "hint": "Vendor ini belum punya email tervalidasi. Klik Deepen di card buat enrich ulang.",
-            },
-        )
-
+    # Note: previously rejected fusions when any vendor lacked a verified
+    # email. Now allowed — agentic-enriched vendors emit emails without
+    # explicit verification flags, and operators want to draft outreach
+    # even for partial-data vendors. Caller can still inspect missing
+    # emails via the candidates API and warn in UI before pressing
+    # Combine.
     vendors = [_orm_to_vendor(v) for v in vendors_orm]
 
     artifacts = await generate_artifacts(vendors, hint=req.hint)

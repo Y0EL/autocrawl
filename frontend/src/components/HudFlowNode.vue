@@ -31,7 +31,7 @@ const tone = computed(() => {
 
 <template>
   <div
-    class="hud-flow-node group relative flex w-[240px] flex-col border bg-white shadow-sm transition-shadow dark:bg-base-900"
+    class="hud-flow-node group relative flex w-[240px] flex-col rounded-md border bg-white shadow-sm transition-shadow dark:bg-base-900"
     :style="{ borderColor: tone, boxShadow: `0 0 0 1px ${tone}20` }"
   >
     <Handle type="target" :position="Position.Left" class="!h-2 !w-2 !border !border-base-400 !bg-base-100 dark:!bg-base-800" />

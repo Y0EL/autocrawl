@@ -52,7 +52,7 @@ const confidencePct = computed(() => Math.round(props.suggestion.confidence * 10
         <span
           v-for="missingId in suggestion.source_vendor_ids.filter((id) => !vendorMap.get(id))"
           :key="missingId"
-          class="border border-warn-300 bg-warn-50 px-1.5 py-0.5 font-mono text-2xs text-warn-700 dark:border-warn-800 dark:bg-warn-900/30 dark:text-warn-300"
+          class="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 font-mono text-2xs text-warn-700 dark:border-warn-800 dark:bg-warn-900/30 dark:text-warn-300"
         >
           ? {{ missingId.slice(0, 6) }}
         </span>

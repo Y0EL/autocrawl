@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,13 +61,32 @@ def _slugify(name: str, year: int | None = None) -> str:
     return s[:80]
 
 
-async def expand_seeds(*, max_per_topic: int = 12) -> list[str]:
+async def expand_seeds(
+    *, max_per_topic: int = 12, force_multilingual: bool = False
+) -> list[str]:
     cfg = get_seed_topics()
     topics = cfg.get("topics", [])
     anchors = cfg.get("anchor_expos", [])
     year = datetime.now(timezone.utc).year
-    sys = SystemMessage(
-        content=(
+    if force_multilingual:
+        sys_content = (
+            "You expand crawl topics into specific search queries to discover "
+            "trade-shows / conferences / expos. Output 8-12 highly varied queries "
+            "per topic mixing region keywords, year context, exhibitor / floor "
+            "plan / agenda terms, and known landmark events. Avoid duplicates.\n\n"
+            "MULTILINGUAL MANDATE — for EVERY topic, regardless of its declared "
+            "region tag, you MUST emit at least one query in EACH of these 5 "
+            "scripts so all regional search engines get hit:\n"
+            "  1. English (Latin)            — e.g. 'security trade show 2026 exhibitor list'\n"
+            "  2. Simplified Chinese (Hanzi) — e.g. 中国国际防务展 2026 参展商\n"
+            "  3. Japanese (Hiragana/Kana)   — e.g. 防衛装備品展示会 2026 出展者\n"
+            "  4. Korean (Hangul)            — e.g. 서울 ADEX 2026 참가업체\n"
+            "  5. Russian (Cyrillic)         — e.g. Армия 2026 участники выставки\n"
+            "Spread the expansions across these scripts; do not over-weight one. "
+            "Do NOT romanize CJK/Cyrillic — emit the native script directly."
+        )
+    else:
+        sys_content = (
             "You expand crawl topics into specific search queries to discover "
             "trade-shows / conferences / expos. Output 8-12 highly varied queries "
             "per topic mixing region keywords, year context, exhibitor / floor "
@@ -82,7 +102,7 @@ async def expand_seeds(*, max_per_topic: int = 12) -> list[str]:
             "Mix English + local-language queries; do not output just one or "
             "the other for these regions."
         )
-    )
+    sys = SystemMessage(content=sys_content)
 
     async def _expand_one(topic: dict) -> list[str]:
         user = HumanMessage(
@@ -108,13 +128,27 @@ async def expand_seeds(*, max_per_topic: int = 12) -> list[str]:
     seen: set[str] = set()
     for batch in expansions:
         for q in batch:
-            k = q.strip().lower()
+            stripped = q.strip()
+            if not stripped:
+                continue
+            # NFC-normalize + casefold so 中国 vs 中國 (or half/full-width
+            # variants) collapse to a single dedup key — protects the Redis
+            # recent-queries set from cache-thrashing on visually equivalent
+            # CJK strings.
+            k = unicodedata.normalize("NFC", stripped).casefold()
             if k and k not in seen:
                 seen.add(k)
-                flat.append(q.strip())
+                flat.append(stripped)
     flat = await _filter_recent_history(flat)
     _log.info("discovery.seeds_ready", count=len(flat))
     return flat
+
+
+def _norm_query_key(q: str) -> str:
+    """NFC-normalize + casefold for Redis dedup. Same key transform used for
+    `seen` set in `expand_seeds`, so visually equivalent CJK/Cyrillic strings
+    map to a single Redis member."""
+    return unicodedata.normalize("NFC", q.strip()).casefold()
 
 
 async def _filter_recent_history(queries: list[str], *, lookback_runs: int = 30) -> list[str]:
@@ -126,10 +160,10 @@ async def _filter_recent_history(queries: list[str], *, lookback_runs: int = 30)
         recent = set(await client.smembers(key))
     except Exception:  # noqa: BLE001
         recent = set()
-    new = [q for q in queries if q.lower() not in recent]
+    new = [q for q in queries if _norm_query_key(q) not in recent]
     try:
         if new:
-            await client.sadd(key, *(q.lower() for q in new))
+            await client.sadd(key, *(_norm_query_key(q) for q in new))
             await client.expire(key, 60 * 60 * 24 * lookback_runs)
     except Exception:  # noqa: BLE001
         pass
@@ -148,7 +182,10 @@ async def _extract_expos_from_hits(query: str, hits: list[SearchHit]) -> list[_E
             "eventbrite, tradefairdates, conferenceindex, allconferences, "
             "n-events, expopromoter, eventseye). Set `official_url` if the URL "
             "looks like the event's own site. Skip generic news articles unless "
-            "they clearly announce a specific event."
+            "they clearly announce a specific event.\n\n"
+            "OUTPUT RULE: Always return valid JSON matching the schema. If no "
+            "events match, return an empty list `{\"expos\": []}`. NEVER write "
+            "prose, explanations, or markdown — only the JSON object."
         )
     )
     user = HumanMessage(content=f"Search query: {query}\n\nResults:\n{rendered}")

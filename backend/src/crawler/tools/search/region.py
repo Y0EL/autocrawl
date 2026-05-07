@@ -39,6 +39,12 @@ _KEYWORD_REGIONS: dict[str, list[str]] = {
 }
 
 
+def all_region_engines() -> list[str]:
+    """Engine keys for the regional Tier-6 providers. Used by force-multilingual
+    callers that want to bypass `detect_regions()` gating and fire all three."""
+    return ["baidu", "naver", "yahoo_japan"]
+
+
 def detect_regions(query: str) -> list[str]:
     """Returns a list of region codes (cn, jp, kr, ru) for which to use the
     region-specific search engine. Empty list = use only Western engines."""

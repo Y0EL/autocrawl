@@ -83,7 +83,7 @@ class SourceProvenance(BaseModel):
     pdf_sha256: str | None = None
     page: int | None = None
     position: int | None = None  # nth vendor on the page
-    extraction_method: str | None = None  # "pymupdf" | "pdfplumber_table" | "surya_ocr" | "search_llm_tiebreak"
+    extraction_method: str | None = None  # "pymupdf" | "pdfplumber_table" | "vlm_ocr" | "search_llm_tiebreak"
     confidence: float | None = None
     context_snippet: str | None = None
     discovered_at: datetime = Field(default_factory=_utcnow)

@@ -1,12 +1,16 @@
-"""Combined PDF parser: PyMuPDF (native text) + pdfplumber (tables) + Surya OCR (scanned).
+"""Combined PDF parser: PyMuPDF (native text) + pdfplumber (tables) + VLM OCR (scanned).
 
 Strategy:
   1. PyMuPDF.get_text("text") → fast native extraction
   2. pdfplumber.extract_tables() → structured table cells
-  3. If native text is sparse (< THRESHOLD chars or text-image ratio low) → Surya OCR
+  3. If native text is sparse (< THRESHOLD chars) → render page to PNG and
+     send it to Ollama's `/api/chat` with a vision model (default gemma4:e4b)
 
-Surya is imported lazily inside the OCR path so the rest of the pipeline can
-run even when surya-ocr or its torch dependency are unavailable.
+Replaces the old Surya OCR fallback. Surya needed external model-weight
+downloads (~500MB) and PyTorch — for our environment where Ollama is already
+serving multimodal models on the LAN, the VLM approach gives comparable OCR
+quality with zero extra dependencies, no weight downloads, and one less
+process competing for GPU memory.
 """
 
 from __future__ import annotations
@@ -24,6 +28,11 @@ _log = get_logger(__name__)
 
 # Pages with fewer native chars than this triggers OCR fallback.
 _OCR_TEXT_THRESHOLD = 80
+# A page emitting this many `(cid:NNN)` placeholders is using an embedded
+# font without a ToUnicode CMap — PyMuPDF can't decode it, so the "text"
+# is meaningless garbage like `(cid:31)(cid:30)(cid:25)`. We treat these
+# pages as scanned and route them through the VLM OCR path.
+_OCR_CID_THRESHOLD = 3
 
 
 @dataclass
@@ -33,7 +42,7 @@ class PageContent:
     page_number: int
     text: str
     tables: list[list[list[str | None]]] = field(default_factory=list)
-    extraction_method: str = "pymupdf"  # "pymupdf" | "pdfplumber_table" | "surya_ocr"
+    extraction_method: str = "pymupdf"  # "pymupdf" | "pdfplumber_table" | "vlm_ocr"
     char_count: int = 0
     width: float | None = None
     height: float | None = None
@@ -41,7 +50,15 @@ class PageContent:
 
 
 def _looks_like_scanned(native_text: str, page: Any) -> bool:
-    if len(native_text.strip()) < _OCR_TEXT_THRESHOLD:
+    stripped = native_text.strip()
+    if len(stripped) < _OCR_TEXT_THRESHOLD:
+        return True
+    # CID-glyph corruption: PDF uses an embedded font whose ToUnicode CMap
+    # is missing or broken. PyMuPDF emits literal `(cid:NN)` placeholders
+    # that pass the length threshold but carry zero usable signal. Treat as
+    # scanned so the VLM OCR path can recover the text from the rendered
+    # page image.
+    if native_text.count("(cid:") >= _OCR_CID_THRESHOLD:
         return True
     return False
 
@@ -102,10 +119,10 @@ def _extract_pages_blocking(pdf_path: Path) -> list[PageContent]:
             method = "pymupdf"
             text = native_text
             if ocr_enabled and _looks_like_scanned(native_text, mu_page):
-                ocr_text = _surya_ocr_page_blocking(mu_page)
+                ocr_text = _vlm_ocr_page_blocking(mu_page)
                 if ocr_text and len(ocr_text) > len(native_text):
                     text = ocr_text
-                    method = "surya_ocr"
+                    method = "vlm_ocr"
 
             rect = getattr(mu_page, "rect", None)
             width = float(rect.width) if rect is not None else None
@@ -131,58 +148,71 @@ def _extract_pages_blocking(pdf_path: Path) -> list[PageContent]:
     return pages
 
 
-def _surya_ocr_page_blocking(mu_page: Any) -> str:
-    """Render PyMuPDF page to image and run Surya OCR. Returns plain text.
+def _vlm_ocr_page_blocking(mu_page: Any) -> str:
+    """Render PyMuPDF page to PNG, send to Ollama vision endpoint, return text.
 
-    Surya import is deferred until first call so a missing surya-ocr install
-    does not break the rest of the pipeline.
+    Uses the same Ollama instance that serves the base crawler's chat LLM,
+    so no extra infra is needed. The model (default `gemma4:e4b`) reads the
+    rendered page image and returns the verbatim text — Gemma 4 docs flag
+    that high visual-token budgets are best for OCR, but that's a model-
+    side concern; our prompt just asks for raw text.
     """
     settings = get_settings()
     try:
-        from PIL import Image  # type: ignore
-    except ImportError:
-        return ""
-
-    try:
-        from surya.foundation import FoundationPredictor  # type: ignore
-        from surya.recognition import RecognitionPredictor  # type: ignore
-        from surya.detection import DetectionPredictor  # type: ignore
+        import httpx
     except ImportError as e:
-        _log.debug("pdf_parser.surya_unavailable", error=str(e))
+        _log.warning("pdf_parser.httpx_unavailable", error=str(e))
         return ""
 
     try:
-        pix = mu_page.get_pixmap(dpi=200)
-        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        pix = mu_page.get_pixmap(dpi=settings.ocr_render_dpi)
+        png_bytes = pix.tobytes("png")
     except Exception as e:  # noqa: BLE001
         _log.debug("pdf_parser.render_failed", error=str(e))
         return ""
 
-    try:
-        global _SURYA_REC, _SURYA_DET
-        if _SURYA_REC is None or _SURYA_DET is None:
-            device = settings.surya_device.lower()
-            kwargs: dict[str, Any] = {}
-            if device in ("cpu", "cuda", "mps"):
-                kwargs["device"] = device
-            foundation = FoundationPredictor(**kwargs)
-            _SURYA_REC = RecognitionPredictor(foundation_predictor=foundation)
-            _SURYA_DET = DetectionPredictor(**kwargs)
+    import base64
 
-        predictions = _SURYA_REC([img], det_predictor=_SURYA_DET)
-        if not predictions:
-            return ""
-        page_pred = predictions[0]
-        lines = getattr(page_pred, "text_lines", None) or []
-        return "\n".join(getattr(line, "text", "") or "" for line in lines)
+    img_b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    base_url = (settings.llm_base_url or "http://ollama:11434").rstrip("/")
+    payload = {
+        "model": settings.ocr_vlm_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Extract every visible text element from this PDF page "
+                    "verbatim — preserve reading order, keep table cells "
+                    "separated by ' | ', use newlines between rows / sections. "
+                    "Do NOT summarize, translate, or omit anything. Output "
+                    "plain text only — no markdown, no commentary."
+                ),
+                "images": [img_b64],
+            }
+        ],
+        "stream": False,
+        "options": {
+            # Deterministic-ish OCR — we want verbatim text, not creative
+            # paraphrasing. Sampling temperature near zero suppresses
+            # hallucination tendencies for small VLMs.
+            "temperature": 0.0,
+            "top_p": 0.95,
+        },
+    }
+
+    try:
+        with httpx.Client(timeout=settings.ocr_page_timeout) as client:
+            resp = client.post(f"{base_url}/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
     except Exception as e:  # noqa: BLE001
-        errors_total.labels(stage="pdf_parser", category="surya_ocr").inc()
-        _log.warning("pdf_parser.ocr_failed", error=str(e))
+        errors_total.labels(stage="pdf_parser", category="vlm_ocr").inc()
+        _log.warning("pdf_parser.ocr_failed", error=str(e)[:200])
         return ""
 
-
-_SURYA_REC: Any | None = None
-_SURYA_DET: Any | None = None
+    msg = (data.get("message") or {}).get("content") or ""
+    return msg.strip()
 
 
 class _suppress:

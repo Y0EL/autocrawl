@@ -1,0 +1,136 @@
+"""Vendor field translation via Mistral (or whichever vision LLM is loaded).
+
+Why a separate module
+---------------------
+Base crawler ships an NLLB-200 translator at `crawler.tools.llm.translator`
+that runs on CPU via CTranslate2 and is wired into the deterministic
+pipeline. The agentic enrich path bypasses that pipeline (publishes via
+queue → enrich worker → reporter) so vendors land in DB still in English.
+
+Rather than re-wire the NLLB pipeline (which needs CUDA-less torch +
+ctranslate2 running well on this host), we just reuse the **already-loaded
+vision LLM** (mistral-small3.2:24b on Ollama) for translation. Zero extra
+VRAM, multilingual, fast enough for vendor-row scale (50-200/day).
+
+Output target language is `TARGET_LANGUAGE` from base settings (default `id`).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from crawler.observability.logger import get_logger
+
+from .config import get_agentic_settings
+
+_log = get_logger(__name__)
+
+
+_PROMPT_TEMPLATE = (
+    "You are a professional English to Indonesian translator. "
+    "Produce ONLY the Indonesian translation, no explanation, no "
+    "markdown, no quotes, no prefix. Preserve product names, "
+    "trademarks, and proper nouns in their original form.\n\n"
+    "Translate this English text:\n\n{text}"
+)
+
+
+async def _translate_one(text: str, *, max_chars: int = 1500) -> str | None:
+    """Translate a single string EN → ID via Ollama. Returns None on
+    error; caller falls back to original."""
+    if not text or len(text.strip()) < 4:
+        return None
+    snippet = text[:max_chars]
+    s = get_agentic_settings()
+    try:
+        import ollama  # type: ignore
+    except ImportError:
+        _log.debug("translator.ollama_module_missing")
+        return None
+
+    host = s.llm_base_url.rstrip("/")
+    try:
+        client = ollama.AsyncClient(host=host)
+        resp = await client.chat(
+            model=s.vision_model,
+            messages=[{"role": "user", "content": _PROMPT_TEMPLATE.format(text=snippet)}],
+            options={"temperature": 0.0, "num_predict": 600},
+            keep_alive="1h",
+        )
+        out = (resp.get("message") or {}).get("content") or ""
+        out = out.strip().strip('"').strip("'")
+        if not out or out.lower() == snippet.lower()[: len(out)]:
+            return None
+        return out[: max_chars * 2]  # safety cap
+    except Exception as e:  # noqa: BLE001
+        _log.debug("translator.call_failed", error=str(e)[:120])
+        return None
+
+
+async def translate_vendor_inplace(vendor: Any) -> bool:
+    """Translate vendor.description / tagline / products EN → ID. Mutates
+    `vendor` in place; original English values mirrored to *_original
+    fields per the schema's localization contract.
+
+    Returns True if at least one field was translated. Idempotent — skips
+    when language_code == 'id' already.
+    """
+    try:
+        from crawler.config import get_settings
+
+        target = get_settings().target_language or "id"
+    except Exception:  # noqa: BLE001
+        target = "id"
+
+    if target != "id":
+        return False
+    if getattr(vendor, "language_code", "en") == "id":
+        return False  # already translated
+
+    changed = False
+
+    if vendor.description:
+        original = vendor.description
+        translated = await _translate_one(original)
+        if translated and translated != original:
+            vendor.description_original = original
+            vendor.description = translated
+            changed = True
+
+    if vendor.tagline:
+        original = vendor.tagline
+        translated = await _translate_one(original)
+        if translated and translated != original:
+            vendor.tagline_original = original
+            vendor.tagline = translated
+            changed = True
+
+    # Products: short keywords, batch as one to save round trips.
+    if vendor.products:
+        joined = " | ".join(vendor.products[:8])
+        translated_joined = await _translate_one(joined, max_chars=600)
+        if translated_joined and translated_joined != joined:
+            translated_list = [
+                p.strip() for p in translated_joined.split("|") if p.strip()
+            ]
+            if translated_list:
+                vendor.products_original = list(vendor.products)
+                vendor.products = translated_list[:8]
+                changed = True
+
+    if changed:
+        vendor.language_code = "id"
+        vendor.translation_method = f"ollama:{get_agentic_settings().vision_model}"
+        try:
+            from datetime import datetime, timezone
+
+            vendor.translated_at = datetime.now(timezone.utc)
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "translator.vendor_translated",
+            domain=getattr(vendor, "domain", None),
+            company=getattr(vendor, "company_name", "")[:80],
+        )
+
+    return changed

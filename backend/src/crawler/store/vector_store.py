@@ -25,8 +25,8 @@ _COLLECTION_NAME = "vendors"
 async def _probe_dim_mismatch(client: Any, coll: Any) -> bool:
     """Returns True iff the collection has rows with a vector dimension that
     doesn't match the active embedding model. Used to auto-wipe stale Chroma
-    state when we switch embedding providers (e.g. OpenAI 1536-dim → granite
-    768-dim)."""
+    state when we switch embedding providers (e.g. embeddinggemma 768-dim →
+    qwen3-embedding 4096-dim, or OpenAI 1536-dim → any local model)."""
     try:
         count = await asyncio.to_thread(coll.count)
         if count == 0:

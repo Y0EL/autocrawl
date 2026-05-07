@@ -49,7 +49,7 @@ const option = computed(() => ({
         position: 'top',
         color: isDark.value ? tactical.text.primary.dark : tactical.text.primary.light,
         fontSize: 10,
-        fontFamily: 'IBM Plex Mono, monospace',
+        fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
       },
     },
   ],

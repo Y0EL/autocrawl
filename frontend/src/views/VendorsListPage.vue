@@ -105,9 +105,9 @@ function sourcePill(v: Vendor): { tone: 'crit' | 'info' | 'accent' | 'muted'; la
   <div class="flex flex-col gap-3 p-3">
     <div
       v-if="country"
-      class="flex items-center justify-between border border-cyan-400/40 bg-cyan-500/5 px-3 py-2"
+      class="flex items-center justify-between rounded-md border border-accent-500/40 bg-accent-500/5 px-3 py-2"
     >
-      <div class="flex items-center gap-2 font-mono text-xs text-cyan-200">
+      <div class="flex items-center gap-2 font-mono text-xs text-accent-200">
         <span class="text-base">{{ countryFlag }}</span>
         <span class="uppercase tracking-ops">FILTER NEGARA: {{ country }}</span>
       </div>

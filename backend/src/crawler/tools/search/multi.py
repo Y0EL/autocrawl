@@ -55,70 +55,105 @@ from .region import detect_regions
 _log = get_logger(__name__)
 
 
-def _build_tasks(query: str, per_source_limit: int) -> dict[str, Awaitable[Any]]:
-    """Compose the dict of provider coroutines based on current settings."""
+# Engine subsets for queries that only make sense on a specific provider class.
+# `pdf` = engines that honor the `filetype:`/`site:` Google-dialect operators or
+# otherwise meaningfully index document URLs. Wikipedia/Reddit/HN/ArXiv/etc are
+# excluded because they ignore these operators and never carry event brochures.
+PDF_FRIENDLY_ENGINES: frozenset[str] = frozenset(
+    {"openserp", "searxng", "ddg", "tavily", "brave", "bing", "wayback_cdx", "firecrawl"}
+)
+
+
+def _build_tasks(
+    query: str,
+    per_source_limit: int,
+    engines: frozenset[str] | set[str] | None = None,
+    force_regions: bool = False,
+) -> dict[str, Awaitable[Any]]:
+    """Compose the dict of provider coroutines based on current settings.
+
+    `engines` (optional): if provided, only include providers whose key is in
+    the set. Use `PDF_FRIENDLY_ENGINES` for `filetype:pdf` queries to skip
+    providers that would just return 0 hits + waste a roundtrip.
+
+    `force_regions`: when True (or `settings.enable_force_multilingual_search`),
+    schedule Baidu/Naver/Yahoo Japan unconditionally. Otherwise the legacy
+    behavior — gate them on `detect_regions(query)` matching CJK/keywords —
+    applies.
+    """
     settings = get_settings()
     tasks: dict[str, Awaitable[Any]] = {}
 
+    def _allow(name: str) -> bool:
+        return engines is None or name in engines
+
     # Tier 1 — always-on lightweight sources.
-    tasks["wikipedia"] = wikipedia.search(query, max_results=min(per_source_limit, 10))
-    tasks["ddg"] = ddg.search(query, max_results=per_source_limit)
-    tasks["google_news"] = google_news_rss.search(query, max_results=per_source_limit)
+    if _allow("wikipedia"):
+        tasks["wikipedia"] = wikipedia.search(query, max_results=min(per_source_limit, 10))
+    if _allow("ddg"):
+        tasks["ddg"] = ddg.search(query, max_results=per_source_limit)
+    if _allow("google_news"):
+        tasks["google_news"] = google_news_rss.search(query, max_results=per_source_limit)
 
     # Tier 2 — self-hosted meta-search.
-    if settings.enable_searxng:
+    if settings.enable_searxng and _allow("searxng"):
         tasks["searxng"] = searxng.search(query, max_results=per_source_limit * 2)
 
     # Tier 3 — free-tier APIs with optional key (each module checks its own key).
-    if settings.enable_tavily:
+    if settings.enable_tavily and _allow("tavily"):
         tasks["tavily"] = tavily.search(query, max_results=per_source_limit)
-    if settings.enable_brave:
+    if settings.enable_brave and _allow("brave"):
         tasks["brave"] = brave.search(query, max_results=per_source_limit)
-    if settings.enable_bing:
+    if settings.enable_bing and _allow("bing"):
         tasks["bing"] = bing.search(query, max_results=per_source_limit)
 
     # Tier 4 — niche public APIs (each module checks its own enable flag).
-    if settings.enable_reddit:
+    if settings.enable_reddit and _allow("reddit"):
         tasks["reddit"] = reddit.search(query, max_results=per_source_limit)
-    if settings.enable_hackernews:
+    if settings.enable_hackernews and _allow("hackernews"):
         tasks["hackernews"] = hackernews.search(query, max_results=per_source_limit)
-    if settings.enable_github_search:
+    if settings.enable_github_search and _allow("github"):
         tasks["github"] = github_search.search(query, max_results=per_source_limit)
-    if settings.enable_arxiv:
+    if settings.enable_arxiv and _allow("arxiv"):
         tasks["arxiv"] = arxiv.search(query, max_results=per_source_limit)
-    if settings.enable_openalex:
+    if settings.enable_openalex and _allow("openalex"):
         tasks["openalex"] = openalex.search(query, max_results=per_source_limit)
-    if settings.enable_semantic_scholar:
+    if settings.enable_semantic_scholar and _allow("semantic_scholar"):
         tasks["semantic_scholar"] = semantic_scholar.search(query, max_results=per_source_limit)
-    if settings.enable_internet_archive:
+    if settings.enable_internet_archive and _allow("internet_archive"):
         tasks["internet_archive"] = internet_archive.search(query, max_results=per_source_limit)
-    if settings.enable_wayback_cdx:
+    if settings.enable_wayback_cdx and _allow("wayback_cdx"):
         tasks["wayback_cdx"] = wayback_cdx.search(query, max_results=per_source_limit)
 
     # Tier 5 — OpenSERP container (off by default; enable via env when ready).
-    if settings.enable_openserp:
+    if settings.enable_openserp and _allow("openserp"):
         tasks["openserp"] = openserp.search(query, max_results=per_source_limit)
 
     # Legacy Firecrawl (paid; keep wired but off by default).
-    if settings.enable_firecrawl:
+    if settings.enable_firecrawl and _allow("firecrawl"):
         from ..firecrawl.client import search as firecrawl_search
 
         tasks["firecrawl"] = firecrawl_search(query, limit=per_source_limit)
 
-    # Tier 6 — region-specific engines, conditional on query language hints.
+    # Tier 6 — region-specific engines.
+    # When force_regions or the global force flag is on, fire all three
+    # unconditionally (Phase 2: drops Asian-engine bias for English queries).
+    # Otherwise gate on detected query language as before.
+    forced = force_regions or settings.enable_force_multilingual_search
     regions = detect_regions(query)
-    if "cn" in regions:
+    if (forced or "cn" in regions) and _allow("baidu"):
         tasks["baidu"] = baidu.search(query, max_results=per_source_limit)
-    if "kr" in regions:
+    if (forced or "kr" in regions) and _allow("naver"):
         tasks["naver"] = naver.search(query, max_results=per_source_limit)
-    if "jp" in regions:
+    if (forced or "jp" in regions) and _allow("yahoo_japan"):
         tasks["yahoo_japan"] = yahoo_japan.search(query, max_results=per_source_limit)
 
-    if regions:
+    if regions or forced:
         _log.info(
             "multi_search.regions_detected",
             query=query[:60],
             regions=regions,
+            forced=forced,
             engines=list(tasks.keys()),
         )
 
@@ -149,8 +184,16 @@ def _coerce_hits(source: str, result: Any) -> list[SearchHit]:
     return []
 
 
-async def search_all(query: str, *, per_source_limit: int = 15) -> list[SearchHit]:
-    tasks = _build_tasks(query, per_source_limit)
+async def search_all(
+    query: str,
+    *,
+    per_source_limit: int = 15,
+    engines: frozenset[str] | set[str] | None = None,
+    force_regions: bool = False,
+) -> list[SearchHit]:
+    tasks = _build_tasks(
+        query, per_source_limit, engines=engines, force_regions=force_regions
+    )
     if not tasks:
         return []
 

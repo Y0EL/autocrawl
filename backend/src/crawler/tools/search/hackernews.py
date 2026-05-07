@@ -17,6 +17,7 @@ import httpx
 
 from ...config import get_settings
 from ...observability.logger import get_logger
+from ..http_proxy import proxied_client
 from .base import SearchHit
 
 _log = get_logger(__name__)
@@ -34,7 +35,7 @@ async def search(query: str, *, max_results: int = 15) -> list[SearchHit]:
     }
     timeout = httpx.Timeout(15.0, connect=5.0)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with proxied_client(timeout=timeout) as client:
             resp = await client.get(url, params=params)
     except httpx.RequestError as e:
         _log.debug("hackernews.request_failed", error=str(e)[:160])

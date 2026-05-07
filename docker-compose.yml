@@ -24,11 +24,14 @@ services:
       TRANSLATION_ENABLED: "true"
       TRANSLATION_PROVIDER: nllb
       NLLB_MODEL_PATH: /opt/nllb_ct2
-      NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
+      NLLB_TOKENIZER_PATH: /opt/nllb_ct2
       TARGET_LANGUAGE: id
       ENABLE_OPENSERP: "true"
       OPENSERP_URL: http://openserp:7000
-      OPENSERP_ENGINES: "baidu"
+      # Yandex paling lenient (gak captcha-heavy), bing+google tambahan untuk
+      # coverage. Baidu skip — wajib residential proxy biar gak kena captcha
+      # tiap query, ga ada gunanya tanpa proxy infra.
+      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-"yandex,bing,google"}
       OPENSERP_MAX_RETRIES: "1"
       ENABLE_SEARXNG: "true"
       SEARXNG_URL: http://searxng:8080
@@ -60,11 +63,47 @@ services:
       LLM_BASE_URL: http://10.83.81.246:11434
       EMBEDDING_PROVIDER: ollama
       EMBEDDING_BASE_URL: http://10.83.81.246:11434
-      OPENAI_MODEL_HEAVY: qwen3.6:35b
-      OPENAI_MODEL_LIGHT: qwen3.6:35b
-      OPENAI_EMBEDDING_MODEL: embeddinggemma:300m
+      # gpt-oss:20b — OpenAI's open-source MoE (Apache 2.0). 20B total /
+      # 3.6B active params, ~13GB at q4. Native harmony format = clean tool
+      # calls + JSON output, reasoning_effort dialable per call. One model
+      # serves all three tiers; flip individual envs to split if needed.
+      OPENAI_MODEL_HEAVY: ${OPENAI_MODEL_HEAVY:-gpt-oss:20b}
+      OPENAI_MODEL_LIGHT: ${OPENAI_MODEL_LIGHT:-gpt-oss:20b}
+      OPENAI_MODEL_TINY: ${OPENAI_MODEL_TINY:-gpt-oss:20b}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-qwen3-embedding:8b}
+      # Performance knobs — see backend/src/crawler/config.py for details.
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-1024}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Hide reasoning trace in API responses (Qwen3 think:false equivalent).
+      OLLAMA_REASONING: ${OLLAMA_REASONING:-false}
+      # gpt-oss harmony reasoning_effort — low|medium|high. `low` for fast
+      # extraction; bump to medium/high if quality of synthesis matters more.
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-low}
+      # Strict json_schema first; gpt-oss honors it. Set to false for models
+      # that need the raw_json_format sledgehammer instead.
+      OLLAMA_STRUCTURED_FAST: ${OLLAMA_STRUCTURED_FAST:-true}
+      # Phase 2 — Redis-backed LLM concurrency queue. Cluster-wide cap on
+      # simultaneous Ollama ainvoke() per tier so the daemon's queue can't
+      # collapse under parallel agentic + base-crawler load.
+      LLM_QUEUE_ENABLED: ${LLM_QUEUE_ENABLED:-true}
+      LLM_QUEUE_VISION_CONCURRENCY: ${LLM_QUEUE_VISION_CONCURRENCY:-2}
+      LLM_QUEUE_HEAVY_CONCURRENCY: ${LLM_QUEUE_HEAVY_CONCURRENCY:-2}
+      LLM_QUEUE_LIGHT_CONCURRENCY: ${LLM_QUEUE_LIGHT_CONCURRENCY:-4}
+      LLM_QUEUE_TINY_CONCURRENCY: ${LLM_QUEUE_TINY_CONCURRENCY:-8}
+      LLM_QUEUE_ACQUIRE_TIMEOUT_S: ${LLM_QUEUE_ACQUIRE_TIMEOUT_S:-120}
+      # Phase 2 — VPN egress. Off by default; flipped on by the
+      # docker-compose.gluetun.yml overlay (or .env).
+      VPN_ENABLED: ${VPN_ENABLED:-false}
+      PROXY_URL: ${PROXY_URL:-}
+      PROXY_MAX_CONSECUTIVE_FAILURES: ${PROXY_MAX_CONSECUTIVE_FAILURES:-3}
+      ENABLE_FORCE_MULTILINGUAL_SEARCH: ${ENABLE_FORCE_MULTILINGUAL_SEARCH:-true}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_BASE_URL: https://api.groq.com/openai/v1
+      # Storage: JSON files in data/reports are always written. Postgres mirror
+      # is opt-in (set PERSIST_TO_DB=true) — required only if you want the
+      # FastAPI/dashboard endpoints to return data.
+      PERSIST_TO_DB: ${PERSIST_TO_DB:-false}
     depends_on:
       redis:
         condition: service_healthy
@@ -80,6 +119,9 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
+      # NLLB model loaded from host (run `docker compose --profile setup run --rm nllb-setup` once).
+      # Read-only here — only the setup service writes to it.
+      - ./nllb_models/nllb_ct2:/opt/nllb_ct2:ro
     networks: [crawl_net]
     ports:
       - "8080:8080"
@@ -99,11 +141,14 @@ services:
       TRANSLATION_ENABLED: "true"
       TRANSLATION_PROVIDER: nllb
       NLLB_MODEL_PATH: /opt/nllb_ct2
-      NLLB_TOKENIZER_PATH: /opt/nllb_hf/snapshot
+      NLLB_TOKENIZER_PATH: /opt/nllb_ct2
       TARGET_LANGUAGE: id
       ENABLE_OPENSERP: "true"
       OPENSERP_URL: http://openserp:7000
-      OPENSERP_ENGINES: "baidu"
+      # Yandex paling lenient (gak captcha-heavy), bing+google tambahan untuk
+      # coverage. Baidu skip — wajib residential proxy biar gak kena captcha
+      # tiap query, ga ada gunanya tanpa proxy infra.
+      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-"yandex,bing,google"}
       OPENSERP_MAX_RETRIES: "1"
       ENABLE_SEARXNG: "true"
       SEARXNG_URL: http://searxng:8080
@@ -135,11 +180,32 @@ services:
       LLM_BASE_URL: http://10.83.81.246:11434
       EMBEDDING_PROVIDER: ollama
       EMBEDDING_BASE_URL: http://10.83.81.246:11434
-      OPENAI_MODEL_HEAVY: qwen3.6:35b
-      OPENAI_MODEL_LIGHT: qwen3.6:35b
-      OPENAI_EMBEDDING_MODEL: embeddinggemma:300m
+      # gpt-oss:20b — OpenAI's open-source MoE (Apache 2.0). 20B total /
+      # 3.6B active params, ~13GB at q4. Native harmony format = clean tool
+      # calls + JSON output, reasoning_effort dialable per call. One model
+      # serves all three tiers; flip individual envs to split if needed.
+      OPENAI_MODEL_HEAVY: ${OPENAI_MODEL_HEAVY:-gpt-oss:20b}
+      OPENAI_MODEL_LIGHT: ${OPENAI_MODEL_LIGHT:-gpt-oss:20b}
+      OPENAI_MODEL_TINY: ${OPENAI_MODEL_TINY:-gpt-oss:20b}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-qwen3-embedding:8b}
+      # Performance knobs — see backend/src/crawler/config.py for details.
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-1024}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Hide reasoning trace in API responses (Qwen3 think:false equivalent).
+      OLLAMA_REASONING: ${OLLAMA_REASONING:-false}
+      # gpt-oss harmony reasoning_effort — low|medium|high. `low` for fast
+      # extraction; bump to medium/high if quality of synthesis matters more.
+      OLLAMA_REASONING_EFFORT: ${OLLAMA_REASONING_EFFORT:-low}
+      # Strict json_schema first; gpt-oss honors it. Set to false for models
+      # that need the raw_json_format sledgehammer instead.
+      OLLAMA_STRUCTURED_FAST: ${OLLAMA_STRUCTURED_FAST:-true}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_BASE_URL: https://api.groq.com/openai/v1
+      # Storage: JSON files in data/reports are always written. Postgres mirror
+      # is opt-in (set PERSIST_TO_DB=true) — required only if you want the
+      # FastAPI/dashboard endpoints to return data.
+      PERSIST_TO_DB: ${PERSIST_TO_DB:-false}
     depends_on:
       autocrawl-db:
         condition: service_healthy
@@ -149,6 +215,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
+      - ./nllb_models/nllb_ct2:/opt/nllb_ct2:ro
     command:
       ["uvicorn", "crawler.api:app", "--host", "0.0.0.0", "--port", "8081", "--proxy-headers"]
     networks: [crawl_net]
@@ -159,6 +226,219 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # One-shot NLLB-200 model downloader. Runs only when explicitly invoked:
+  #   docker compose --profile setup run --rm nllb-setup
+  # Reuses the crawler image (which already has ctranslate2 + transformers +
+  # huggingface-hub installed). Downloads + converts to ./nllb_models/ on host,
+  # which is then mounted read-only into crawler & api at /opt/nllb_ct2.
+  # After this completes once, the model PERSISTS across image rebuilds, prunes,
+  # and Docker cache wipes — no more re-downloading 1.34GB on every build.
+  nllb-setup:
+    image: autocrawl/crawler:latest
+    profiles: ["setup"]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ./nllb_models:/models
+    networks: [crawl_net]
+    command: ["python", "/app/scripts/setup-nllb.py"]
+
+  # AI-driven sibling crawler. Independent process, same data sink as `crawler`.
+  # Vision-capable LLM (qwen3.6:27b on the LAN Ollama) drives a real Chromium
+  # via Browser-Use, scrolling and clicking like a human to extract exhibitor
+  # data from sites the deterministic 6-tier scraper struggles with.
+  #
+  # OFF by default. Enable with:
+  #   1. AGENTIC_ENABLED=true in .env
+  #   2. Populate config/agentic_seeds.yaml with target sites
+  #   3. docker compose --profile agentic up -d agentic-crawler
+  #
+  # The base crawler stack runs unaffected when this profile is not selected.
+  # Twin agentic containers — `agentic-a` and `agentic-b` — each running the
+  # COMBINED listing+enrich pool. Per Phase 3 plan the operator wanted both
+  # pools' chromiums visible in EACH VNC, not segregated by container. Each
+  # twin runs:
+  #   - 2 listing-pool Browser-Use agents (workspace 1 in fluxbox)
+  #   - 2 enrich-pool Browser-Use agents  (workspace 2 in fluxbox)
+  # = 4 chromium per VNC × 2 VNCs = 8 chromium total system-wide.
+  #
+  # Listing-side scheduler lock is now PER-HOSTNAME so both twins can run
+  # passes in parallel without fighting one global lock. Both consume the
+  # same `agentic:enrich:queue` Redis stream — Redis consumer-group fan-out
+  # load-balances across all 4 enrich workers (2 per twin) automatically.
+
+  agentic-a:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.agentic
+    image: autocrawl/agentic-crawler:latest
+    container_name: autocrawl-agentic-a
+    hostname: agentic-a
+    profiles: ["agentic"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:123@autocrawl-db:5432/autocrawl
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      DATA_DIR: /app/data
+      LOG_DIR: /app/logs
+      CONFIG_DIR: /app/config
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://10.83.81.246:11434
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://10.83.81.246:11434
+      # FORCE these when the `agentic` profile is invoked. Hard-coded (not
+      # ${VAR:-default}) so the user doesn't have to remember to flip them
+      # in .env — opting into the profile = opting into a running agent.
+      AGENTIC_ENABLED: "true"
+      # Headless OFF so Chromium draws to the Xvfb virtual display, which
+      # noVNC streams to http://localhost:7900/vnc.html for live monitoring.
+      AGENTIC_HEADLESS: "false"
+      AGENTIC_LLM_BASE_URL: ${AGENTIC_LLM_BASE_URL:-http://10.83.81.246:11434}
+      AGENTIC_VISION_MODEL: ${AGENTIC_VISION_MODEL:-qwen3.6:27b}
+      AGENTIC_USE_VISION: ${AGENTIC_USE_VISION:-true}
+      AGENTIC_MAX_ACTIONS: ${AGENTIC_MAX_ACTIONS:-20}
+      AGENTIC_TASK_TIMEOUT: ${AGENTIC_TASK_TIMEOUT:-1800}
+      AGENTIC_RUN_INTERVAL_MIN: ${AGENTIC_RUN_INTERVAL_MIN:-60}
+      AGENTIC_RECORD_SCREENSHOTS: ${AGENTIC_RECORD_SCREENSHOTS:-true}
+      AGENTIC_RECORD_CONVERSATION: ${AGENTIC_RECORD_CONVERSATION:-true}
+      # Per-twin parallel: 2 listing + 2 enrich = 4 chromium in this VNC.
+      # The other twin (`agentic-b`) does the same → 8 chromium total.
+      AGENTIC_PARALLEL_SEEDS: ${AGENTIC_PARALLEL_SEEDS:-2}
+      AGENTIC_ENRICH_PARALLEL: ${AGENTIC_ENRICH_PARALLEL:-2}
+      # Phase 2 — multi-region search forcing. When true: expand_seeds()
+      # produces EN+zh+ja+ko+ru per topic and search_all() fans out to
+      # Baidu/Naver/Yahoo Japan unconditionally. Defaults ON for agentic.
+      AGENTIC_FORCE_MULTILINGUAL: ${AGENTIC_FORCE_MULTILINGUAL:-true}
+      ENABLE_FORCE_MULTILINGUAL_SEARCH: ${ENABLE_FORCE_MULTILINGUAL_SEARCH:-true}
+      # Phase 2 — Redis-backed LLM concurrency queue. Caps simultaneous
+      # ainvoke() calls per tier so 4 parallel Browser-Use seeds can't
+      # collapse the Ollama daemon's request queue. Defaults sized for
+      # 2× RTX PRO 6000 (192 GB VRAM total).
+      LLM_QUEUE_ENABLED: ${LLM_QUEUE_ENABLED:-true}
+      LLM_QUEUE_VISION_CONCURRENCY: ${LLM_QUEUE_VISION_CONCURRENCY:-2}
+      LLM_QUEUE_HEAVY_CONCURRENCY: ${LLM_QUEUE_HEAVY_CONCURRENCY:-2}
+      LLM_QUEUE_LIGHT_CONCURRENCY: ${LLM_QUEUE_LIGHT_CONCURRENCY:-4}
+      LLM_QUEUE_TINY_CONCURRENCY: ${LLM_QUEUE_TINY_CONCURRENCY:-8}
+      LLM_QUEUE_ACQUIRE_TIMEOUT_S: ${LLM_QUEUE_ACQUIRE_TIMEOUT_S:-120}
+      # Phase 3 — dual-pool combined mode. Each twin runs BOTH the listing
+      # scheduler AND the enrich worker in one process; both pools render
+      # to the same Xvfb display so noVNC shows them tiled together.
+      AGENTIC_ENRICH_ENABLED: ${AGENTIC_ENRICH_ENABLED:-false}
+      AGENTIC_LISTING_WORKSPACE_ID: ${AGENTIC_LISTING_WORKSPACE_ID:-1}
+      AGENTIC_ENRICH_WORKSPACE_ID: ${AGENTIC_ENRICH_WORKSPACE_ID:-2}
+      AGENTIC_VNC_WORKSPACE_ASSIGNMENT_ENABLED: ${AGENTIC_VNC_WORKSPACE_ASSIGNMENT_ENABLED:-true}
+      # Phase 3.1 — twin A handles half of the seed list per pass.
+      AGENTIC_SHARD_INDEX: "0"
+      AGENTIC_SHARD_TOTAL: "2"
+      AGENTIC_PERSISTENT_PROFILES: ${AGENTIC_PERSISTENT_PROFILES:-true}
+      # Browser-Use bubus event timeouts — defaults 30s are too tight for
+      # cold Chromium launch with persistent profile + Xvfb attach. 120s
+      # gives 4× headroom; nav events stay 60s for responsiveness.
+      TIMEOUT_BrowserStartEvent: "120"
+      TIMEOUT_BrowserLaunchEvent: "120"
+      TIMEOUT_BrowserConnectedEvent: "60"
+      TIMEOUT_NavigateToUrlEvent: "60"
+      TIMEOUT_BrowserStateRequestEvent: "60"
+      PERSIST_TO_DB: ${PERSIST_TO_DB:-true}
+      DISPLAY: ":99"
+      DISPLAY_NUM: "99"
+      VNC_RESOLUTION: "1280x800"
+    depends_on:
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+      autocrawl-db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    networks: [crawl_net]
+    ports:
+      # noVNC for twin A — open http://localhost:7900/vnc.html
+      - "7900:7900"
+    shm_size: 2gb
+    command: ["agentic-crawl", "combined"]
+
+  agentic-b:
+    image: autocrawl/agentic-crawler:latest
+    container_name: autocrawl-agentic-b
+    hostname: agentic-b
+    profiles: ["agentic"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:123@autocrawl-db:5432/autocrawl
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      DATA_DIR: /app/data
+      LOG_DIR: /app/logs
+      CONFIG_DIR: /app/config
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://10.83.81.246:11434
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://10.83.81.246:11434
+      AGENTIC_ENABLED: "true"
+      AGENTIC_HEADLESS: "false"
+      AGENTIC_LLM_BASE_URL: ${AGENTIC_LLM_BASE_URL:-http://10.83.81.246:11434}
+      AGENTIC_VISION_MODEL: ${AGENTIC_VISION_MODEL:-qwen3-vl:30b}
+      AGENTIC_USE_VISION: ${AGENTIC_USE_VISION:-true}
+      AGENTIC_MAX_ACTIONS: ${AGENTIC_MAX_ACTIONS:-20}
+      AGENTIC_TASK_TIMEOUT: ${AGENTIC_TASK_TIMEOUT:-1800}
+      AGENTIC_RUN_INTERVAL_MIN: ${AGENTIC_RUN_INTERVAL_MIN:-60}
+      AGENTIC_RECORD_SCREENSHOTS: ${AGENTIC_RECORD_SCREENSHOTS:-true}
+      AGENTIC_RECORD_CONVERSATION: ${AGENTIC_RECORD_CONVERSATION:-true}
+      AGENTIC_PARALLEL_SEEDS: ${AGENTIC_PARALLEL_SEEDS:-2}
+      AGENTIC_ENRICH_PARALLEL: ${AGENTIC_ENRICH_PARALLEL:-2}
+      AGENTIC_FORCE_MULTILINGUAL: ${AGENTIC_FORCE_MULTILINGUAL:-true}
+      ENABLE_FORCE_MULTILINGUAL_SEARCH: ${ENABLE_FORCE_MULTILINGUAL_SEARCH:-true}
+      LLM_QUEUE_ENABLED: ${LLM_QUEUE_ENABLED:-true}
+      LLM_QUEUE_VISION_CONCURRENCY: ${LLM_QUEUE_VISION_CONCURRENCY:-2}
+      LLM_QUEUE_HEAVY_CONCURRENCY: ${LLM_QUEUE_HEAVY_CONCURRENCY:-2}
+      LLM_QUEUE_LIGHT_CONCURRENCY: ${LLM_QUEUE_LIGHT_CONCURRENCY:-4}
+      LLM_QUEUE_TINY_CONCURRENCY: ${LLM_QUEUE_TINY_CONCURRENCY:-8}
+      LLM_QUEUE_ACQUIRE_TIMEOUT_S: ${LLM_QUEUE_ACQUIRE_TIMEOUT_S:-120}
+      AGENTIC_ENRICH_ENABLED: ${AGENTIC_ENRICH_ENABLED:-false}
+      AGENTIC_LISTING_WORKSPACE_ID: ${AGENTIC_LISTING_WORKSPACE_ID:-1}
+      AGENTIC_ENRICH_WORKSPACE_ID: ${AGENTIC_ENRICH_WORKSPACE_ID:-2}
+      AGENTIC_VNC_WORKSPACE_ASSIGNMENT_ENABLED: ${AGENTIC_VNC_WORKSPACE_ASSIGNMENT_ENABLED:-true}
+      # Phase 3.1 — twin B picks the OTHER half of the seed list per pass.
+      AGENTIC_SHARD_INDEX: "1"
+      AGENTIC_SHARD_TOTAL: "2"
+      AGENTIC_PERSISTENT_PROFILES: ${AGENTIC_PERSISTENT_PROFILES:-true}
+      TIMEOUT_BrowserStartEvent: "120"
+      TIMEOUT_BrowserLaunchEvent: "120"
+      TIMEOUT_BrowserConnectedEvent: "60"
+      TIMEOUT_NavigateToUrlEvent: "60"
+      TIMEOUT_BrowserStateRequestEvent: "60"
+      PERSIST_TO_DB: ${PERSIST_TO_DB:-true}
+      DISPLAY: ":99"
+      DISPLAY_NUM: "99"
+      VNC_RESOLUTION: "1280x800"
+    depends_on:
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+      autocrawl-db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    networks: [crawl_net]
+    ports:
+      # noVNC for twin B — open http://localhost:7901/vnc.html
+      - "7901:7900"
+    shm_size: 2gb
+    command: ["agentic-crawl", "combined"]
 
   autocrawl-db:
     image: postgres:16-alpine
@@ -171,6 +451,10 @@ services:
     volumes:
       - autocrawl_pgdata:/var/lib/postgresql/data
     networks: [crawl_net]
+    # Exposed so host-side tools (psql, agentic_crawler running outside Docker)
+    # can connect via localhost:5432.
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d autocrawl"]
       interval: 10s
@@ -198,6 +482,10 @@ services:
     volumes:
       - redis_data:/data
     networks: [crawl_net]
+    # Exposed so host-side tools (redis-cli, agentic_crawler running outside
+    # Docker) can connect via localhost:6379.
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -205,7 +493,9 @@ services:
       retries: 5
 
   chroma:
-    image: chromadb/chroma:latest
+    # 0.5.23 = last v1 release. `:latest` is now v2 which dropped /api/v1 and
+    # 410-Gones every heartbeat from our v1 chromadb client.
+    image: chromadb/chroma:0.5.23
     container_name: autocrawl-chroma
     restart: unless-stopped
     environment:

@@ -62,7 +62,10 @@ def _reports_dir() -> Path:
 
 
 async def write_vendor(vendor: Vendor) -> Path:
-    path = _reports_dir() / "vendors" / f"{_slug(vendor.domain)}.json"
+    # Unresolved vendors have no domain; fall back to vendor_id so the row
+    # still lands on disk under a stable, unique filename.
+    slug = _slug(vendor.domain) if vendor.domain else f"unresolved_{vendor.vendor_id}"
+    path = _reports_dir() / "vendors" / f"{slug}.json"
     payload = vendor.model_dump(mode="json")
     await _atomic_write(path, payload)
     return path

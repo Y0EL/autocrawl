@@ -1,0 +1,81 @@
+/* Autocrawl — Editorial Cartographic Token System
+ * Two-plate palette: ink-teal + vermilion on warm paper.
+ * Light theme only in this pass; dark counterpart reserved.
+ */
+
+:root,
+:root[data-theme='paper'] {
+  /* Surfaces */
+  --paper: 244 239 230;        /* #F4EFE6 — warm cream page */
+  --paper-2: 236 229 216;      /* #ECE5D8 — ledger row alt, inset */
+  --paper-edge: 224 215 199;   /* #E0D7C7 — far edges, page gutters */
+
+  /* Ink */
+  --ink: 20 18 16;             /* #141210 — near-black body */
+  --ink-2: 58 52 45;           /* #3A342D — secondary text */
+  --ink-mute: 122 113 103;     /* #7A7167 — tertiary, captions */
+
+  /* Rules */
+  --rule: 20 18 16;
+  --rule-alpha: 0.12;
+  --rule-strong-alpha: 0.28;
+
+  /* Accents */
+  --accent-ink: 16 48 46;      /* #10302E — deep ink-teal: primary accent */
+  --accent-ink-2: 34 80 76;    /* #22504C — accent hover */
+  --vermilion: 181 50 26;      /* #B5321A — rare punctuation */
+  --gold-leaf: 158 124 46;     /* #9E7C2E — idle/stopped status only */
+
+  /* Status */
+  --ok: 22 99 71;              /* deeper, ink-friendly green */
+  --warn: 158 124 46;          /* same as gold-leaf */
+  --crit: 181 50 26;           /* same as vermilion */
+  --info: 16 48 46;            /* same as accent-ink */
+
+  /* Motion */
+  --ease-paper: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur-90: 90ms;
+  --dur-160: 160ms;
+  --dur-240: 240ms;
+  --dur-360: 360ms;
+
+  /* Type scale (modular, minor third 1.2) */
+  --text-2xs: 0.6875rem;       /* 11px */
+  --text-xs: 0.75rem;          /* 12px */
+  --text-sm: 0.875rem;         /* 14px */
+  --text-base: 1rem;           /* 16px */
+  --text-lg: 1.125rem;         /* 18px */
+  --text-xl: 1.375rem;         /* 22px */
+  --text-2xl: 1.625rem;        /* 26px */
+  --text-3xl: 2rem;            /* 32px */
+  --text-4xl: 2.5rem;          /* 40px */
+  --text-5xl: 3.25rem;         /* 52px */
+  --text-6xl: 4rem;            /* 64px */
+  --text-7xl: 5.25rem;         /* 84px — drop caps, hero KPIs */
+
+  /* Tracking */
+  --tracking-ops: 0.14em;      /* uppercase mono labels */
+  --tracking-display: 0.01em;
+  --tracking-tight: -0.012em;  /* Newsreader display */
+
+  color-scheme: light;
+}
+
+/* Codex Nox — dark counterpart scaffolded for future. Components do not need
+ * any changes when this is enabled later. */
+:root[data-theme='ink-dark'] {
+  --paper: 15 14 12;
+  --paper-2: 22 20 18;
+  --paper-edge: 30 27 24;
+  --ink: 232 225 210;
+  --ink-2: 188 178 162;
+  --ink-mute: 130 120 108;
+  --rule: 232 225 210;
+  --rule-alpha: 0.10;
+  --rule-strong-alpha: 0.26;
+  --accent-ink: 123 201 190;
+  --accent-ink-2: 156 218 209;
+  --vermilion: 226 107 79;
+  --gold-leaf: 198 158 76;
+  color-scheme: dark;
+}

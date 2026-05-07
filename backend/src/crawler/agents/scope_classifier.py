@@ -53,7 +53,11 @@ async def classify_vendor(vendor: Vendor) -> _ScopeJudgment:
     user = HumanMessage(content=profile)
     try:
         system = await _system_message()
-        result = await chat([system, user], use_heavy=False, response_format=_ScopeJudgment)
+        # Binary scope classification — tiny tier. With gpt-oss:20b that's the
+        # same model as light/heavy, but reasoning_effort=low + small prompt
+        # keeps this call fast. Override OPENAI_MODEL_TINY to a smaller model
+        # (qwen2.5-coder:7b, granite-tiny) if you need to free VRAM.
+        result = await chat([system, user], tier="tiny", response_format=_ScopeJudgment)
         return result if isinstance(result, _ScopeJudgment) else _ScopeJudgment()
     except Exception as e:  # noqa: BLE001
         errors_total.labels(stage="scope", category="llm_judgment").inc()

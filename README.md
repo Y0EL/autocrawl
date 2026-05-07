@@ -4,7 +4,7 @@ Crawler otonom yang jalan 24 jam non stop. Fungsinya menemukan expo bidang secur
 
 > **Baru pertama kali pakai?** Lihat [TUTORIAL.md](TUTORIAL.md) untuk panduan langkah demi langkah dari nol (15 section, lengkap dengan troubleshooting).
 
-Stack inti backend. LangGraph, LangChain (langchain-ollama dan langchain-openai), Playwright, **Crawl4AI** (Apache-2.0 OSS, ganti Firecrawl), Surya OCR, **Ollama dengan IBM Granite 4.1** (LLM lokal default, gratis, Apache-2.0), **OpenSERP** (SERP self-hosted multi engine, mendukung Google, Bing, Yandex, Baidu), FastAPI, SQLAlchemy async, Postgres, Redis Streams.
+Stack inti backend. LangGraph, LangChain (langchain-ollama dan langchain-openai), Playwright, **Crawl4AI** (Apache-2.0 OSS, ganti Firecrawl), **OCR via Ollama vision model** (`gemma4:e4b`, ganti Surya — gak perlu PyTorch / weight download), **Ollama dengan IBM Granite 4.1** (LLM lokal default, gratis, Apache-2.0), **OpenSERP** (SERP self-hosted multi engine, mendukung Google, Bing, Yandex, Baidu), FastAPI, SQLAlchemy async, Postgres, Redis Streams.
 
 Stack frontend. Vue 3, TypeScript, Tailwind CSS, Apache ECharts, **Vue Flow** (canvas LangGraph viz), **MapLibre GL dengan @antv/l7** (world map 2.5D globe projection plus drilldown panel interaktif), TanStack Query, Pinia, FontAwesome 6. Semua self host, dijalankan via Docker Compose. Default tanpa cloud dependency, OpenAI cuma escape hatch opsional.
 
@@ -24,7 +24,7 @@ crawl/
         firecrawl/   Legacy Firecrawl client (off by default, ENABLE_FIRECRAWL flag)
         search/      wikipedia (full WikiClient REST direct), ddg, baidu, naver, multi
         browsers/    httpx, Playwright pool, Crawl4AI ladder, FlareSolverr
-        parsers/     html_parser, pdf_parser (PyMuPDF + pdfplumber + Surya)
+        parsers/     html_parser, pdf_parser (PyMuPDF + pdfplumber + Ollama VLM)
         llm/         openai_client, translator (NLLB-200 int8)
         proxies/     rate_limit, flaresolverr
       store/         json_reporter, db_reporter, pdf_store, vector_store
@@ -290,7 +290,10 @@ docker compose exec api crawl backfill-pdfs              # walk data/pdfs/ dan i
 docker compose exec api crawl db migrate                 # buat tabel Postgres
 docker compose exec api crawl db import-json             # impor JSON lama ke DB
 docker compose exec api crawl api-serve --port 8081      # serve API manual (default sudah jalan)
+docker compose exec api crawl reset-state                # bersihin lock Redis + runs gantung + ref mid-pipeline
 ```
+
+> Detail `reset-state` (kapan perlu, flag `--clear-pdfs`/`--clear-logs`, manual fallback) ada di [TUTORIAL.md section 13x](TUTORIAL.md).
 
 Mode tersedia:
 
@@ -501,19 +504,22 @@ Aktifin lewat `.env`:
 ```
 PDF_DISCOVERY_ENABLED=true
 OCR_ENABLED=true
-SURYA_DEVICE=auto      # auto | cpu | cuda | mps
+OCR_VLM_MODEL=gemma4:e4b   # vision model untuk OCR fallback (lewat Ollama)
+OCR_RENDER_DPI=200
+OCR_PAGE_TIMEOUT=60
 MAX_PDFS_PER_EXPO=10
 PDF_MAX_SIZE_MB=50
 ```
 
-Build image dengan Surya OCR (default `INSTALL_SURYA=true`):
+OCR sekarang dilayani Ollama (vision model `gemma4:e4b`) — tidak perlu PyTorch, tidak perlu download bobot Surya. Cukup pastikan model sudah ke-pull di Ollama:
 
 ```bash
+docker compose exec ollama ollama pull gemma4:e4b
 docker compose build crawler
 docker compose up -d
 ```
 
-Untuk passthrough GPU (butuh NVIDIA Container Toolkit di host):
+Untuk passthrough GPU ke Ollama (butuh NVIDIA Container Toolkit di host):
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
@@ -545,7 +551,7 @@ Tiap vendor JSON yang ditemukan dari PDF punya `source_trail` lengkap:
       "pdf_sha256": "abc123...",
       "page": 7,
       "position": 3,
-      "extraction_method": "surya_ocr",
+      "extraction_method": "vlm_ocr",
       "confidence": 0.92,
       "context_snippet": "AS#312 Guangzhou Institute Defense Hall B"
     },
@@ -651,7 +657,7 @@ Endpoint `POST /api/runs/stop` body `{force: bool}`. Lock Redis `autocrawl:activ
 ## Cara Kerja Singkat
 
 1. **Discovery**. LLM expand topic dari `config/seed_topics.yaml` jadi 8 sampai 15 query variasi (juga dalam bahasa lokal kalau region China, Jepang, Korea, atau Russia). Multi sumber search tiered. Wikipedia REST direct (OpenSearch plus CategoryMembers), DuckDuckGo via `ddgs`, Google News RSS, plus regional engine (Baidu, Naver, Yahoo Japan) kalau region cocok, plus **OpenSERP** (Google, Bing, Yandex, Baidu via headless Chromium lokal) saat `ENABLE_OPENSERP=true`, plus Firecrawl cuma kalau `ENABLE_FIRECRAWL=true`.
-2. **Extraction**. Scraper khusus per situs aggregator (10times, Wikipedia article, generic fallback) hasilkan daftar exhibitor. Wikipedia path gabungkan internal `/wiki/` link classification + external links dari `extlinks` API. Bersamaan, PDF Finder cari brosur PDF expo (lewat Crawl4AI `c4ai_find_pdfs`) dan PDF Extractor parsing pakai PyMuPDF, pdfplumber, atau Surya OCR. PDF metadata (filename, sha256, size, page_count, vendors_found, downloaded_at) auto-persisted ke tabel `pdfs` setelah extraction selesai.
+2. **Extraction**. Scraper khusus per situs aggregator (10times, Wikipedia article, generic fallback) hasilkan daftar exhibitor. Wikipedia path gabungkan internal `/wiki/` link classification + external links dari `extlinks` API. Bersamaan, PDF Finder cari brosur PDF expo (lewat Crawl4AI `c4ai_find_pdfs`) dan PDF Extractor parsing pakai PyMuPDF, pdfplumber, atau Ollama vision OCR (`gemma4:e4b`). PDF metadata (filename, sha256, size, page_count, vendors_found, downloaded_at) auto-persisted ke tabel `pdfs` setelah extraction selesai.
 3. **Resolution**. Komponen paling penting. Tiap exhibitor dihadapkan ke ladder schema.org json ld, anchor "Visit Website", analisa outbound link, lalu LLM tie break. Aggregator dan social media pasti ditolak via blacklist di `config/aggregator_blacklist.yaml`. Untuk vendor dari PDF yang cuma punya nama, name resolver pakai search plus LLM untuk nemuin domain aslinya.
 4. **Dedup**. Chroma cosine similarity. Vendor yang mirip cuma di update expo list nya, tidak di enrich ulang.
 5. **Enrichment**. Gabungan whois, dns, sitemap, schema.org organization, Open Graph, regex email, Wayback. LLM merge semua jadi profil Vendor sesuai schema Pydantic. Field yang tidak bisa diisi free tier ditandai `enrichment_gap`.
@@ -708,7 +714,7 @@ Cakupan saat ini: backend unit test (URL canonicalization, aggregator blacklist,
 | `backend/src/crawler/agents/name_resolver.py` | Resolver vendor PDF (cuma punya nama, cari domain pakai search plus LLM) |
 | `backend/src/crawler/agents/pdf_finder.py` | Discovery URL PDF dari aggregator, situs resmi expo, dan search engine |
 | `backend/src/crawler/tools/scrapers/pdf_extractor.py` | Parsing PDF jadi daftar vendor dengan provenance halaman |
-| `backend/src/crawler/tools/parsers/pdf_parser.py` | PyMuPDF plus pdfplumber plus Surya OCR fallback |
+| `backend/src/crawler/tools/parsers/pdf_parser.py` | PyMuPDF plus pdfplumber plus Ollama-VLM OCR fallback (gemma4:e4b) |
 | `backend/src/crawler/store/pdf_store.py` | Atomic download PDF, dedup SHA256, sidecar metadata |
 | `backend/src/crawler/store/db_reporter.py` | Tulis Vendor / Expo / Run ke Postgres dual-write dengan JSON |
 | `backend/src/crawler/db/models.py` | SQLAlchemy ORM Vendor, Expo, ExpoVendor, Pdf, Run |

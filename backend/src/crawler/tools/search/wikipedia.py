@@ -34,6 +34,7 @@ from tenacity import (
 from ...config import get_settings
 from ...observability.logger import get_logger
 from ...observability.metrics import errors_total
+from ..http_proxy import proxied_client
 from .base import SearchHit
 
 _log = get_logger(__name__)
@@ -73,7 +74,7 @@ async def _request(params: dict[str, Any], *, timeout: float | None = None) -> d
         retry=retry_if_exception_type((WikiRateLimited, httpx.TimeoutException, httpx.NetworkError)),
     ):
         with attempt:
-            async with _SEM, httpx.AsyncClient(timeout=timeout, headers=_HEADERS) as client:
+            async with _SEM, proxied_client(timeout=timeout, headers=_HEADERS) as client:
                 resp = await client.get(_BASE, params=full_params)
                 if resp.status_code == 429:
                     raise WikiRateLimited("HTTP 429 from Wikipedia")
@@ -114,7 +115,7 @@ async def opensearch(query: str, *, limit: int = 10) -> list[SearchHit]:
             ),
         ):
             with attempt:
-                async with _SEM, httpx.AsyncClient(timeout=timeout, headers=_HEADERS) as client:
+                async with _SEM, proxied_client(timeout=timeout, headers=_HEADERS) as client:
                     resp = await client.get(_BASE, params=params)
                     if resp.status_code == 429:
                         raise WikiRateLimited("HTTP 429 from Wikipedia")

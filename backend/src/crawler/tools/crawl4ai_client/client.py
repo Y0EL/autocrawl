@@ -34,6 +34,33 @@ from ...observability.metrics import (
 _log = get_logger(__name__)
 
 
+def _resolve_litellm_target(settings: Any) -> tuple[str, str | None, str | None]:
+    """Map our LLM_PROVIDER + base_url to a LiteLLM (provider, token, base_url).
+
+    Crawl4AI's LLMExtractionStrategy delegates to LiteLLM, which routes by the
+    `<vendor>/<model>` prefix and respects an api_base. Without this mapping
+    Crawl4AI silently falls back to api.openai.com even when the rest of the
+    crawler is on Ollama.
+    """
+    raw_provider = (settings.llm_provider or "openai").lower()
+    model = settings.crawl4ai_extraction_model or settings.openai_model_light
+
+    if raw_provider == "ollama":
+        base = (settings.llm_base_url or "http://ollama:11434").rstrip("/")
+        base = base.removesuffix("/v1")
+        # ollama_chat/ targets /api/chat which matches the chat-model lineup
+        # (qwen, llama, granite). Plain ollama/ would hit /api/generate.
+        return f"ollama_chat/{model}", "ollama", base
+    if raw_provider == "groq":
+        return f"groq/{model}", settings.groq_api_key or None, None
+    # openai cloud (or any OpenAI-compatible endpoint via LLM_BASE_URL)
+    return (
+        f"openai/{model}",
+        settings.openai_api_key or None,
+        settings.llm_base_url or None,
+    )
+
+
 class Crawl4AIClient:
     """Process-wide singleton wrapping AsyncWebCrawler with recycling."""
 
@@ -165,7 +192,8 @@ class Crawl4AIClient:
     ) -> dict[str, Any] | None:
         """LLM-backed extraction via Crawl4AI's LLMExtractionStrategy.
 
-        Uses the configured OpenAI key; cost is OpenAI tokens only.
+        Honors LLM_PROVIDER so the crawler doesn't quietly hit api.openai.com
+        when the rest of the stack is pointed at Ollama / Groq.
         """
         from crawl4ai import CacheMode, CrawlerRunConfig
         from crawl4ai.extraction_strategy import LLMExtractionStrategy
@@ -176,11 +204,12 @@ class Crawl4AIClient:
             LLMConfig = None  # type: ignore[assignment]
 
         settings = get_settings()
-        provider = f"openai/{settings.crawl4ai_extraction_model}"
-        api_token = settings.openai_api_key
+        provider, api_token, base_url = _resolve_litellm_target(settings)
 
         if LLMConfig is not None:
-            llm_config = LLMConfig(provider=provider, api_token=api_token)
+            llm_config = LLMConfig(
+                provider=provider, api_token=api_token, base_url=base_url
+            )
             strat = LLMExtractionStrategy(
                 llm_config=llm_config,
                 schema=schema.model_json_schema(),
@@ -193,6 +222,7 @@ class Crawl4AIClient:
             strat = LLMExtractionStrategy(
                 provider=provider,
                 api_token=api_token,
+                base_url=base_url,
                 schema=schema.model_json_schema(),
                 extraction_type="schema",
                 instruction=instruction,

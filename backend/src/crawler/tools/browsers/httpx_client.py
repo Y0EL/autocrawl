@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import time
 
-import httpx
-
 from ...config import get_settings
 from ...observability.logger import get_logger
 from ...observability.metrics import errors_total, request_duration_seconds
+from ..http_proxy import proxied_client
 
 _log = get_logger(__name__)
 
@@ -28,7 +27,7 @@ async def fetch(url: str, *, timeout: float | None = None) -> dict:
     timeout = timeout or float(settings.global_request_timeout_seconds)
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(
+        async with proxied_client(
             timeout=timeout,
             follow_redirects=True,
             http2=True,

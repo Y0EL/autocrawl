@@ -22,21 +22,33 @@ const items: NavItem[] = [
 ]
 
 const collapsed = useStorage('autocrawl-sidebar-collapsed', true)
+
+defineProps<{
+  transparent?: boolean
+}>()
 </script>
 
 <template>
   <aside
     :class="[
-      'relative z-10 flex h-full shrink-0 flex-col border-r border-base-200 bg-white transition-[width] duration-150 dark:border-base-700 dark:bg-base-900',
+      'relative z-10 flex h-full shrink-0 flex-col transition-[width] duration-150',
       collapsed ? 'w-14' : 'w-56',
+      transparent
+        ? 'border-r border-accent-500/15 bg-base-950/55 backdrop-blur-xl'
+        : 'border-r border-base-200 bg-white dark:border-base-700 dark:bg-base-900',
     ]"
   >
     <div
-      class="flex h-12 shrink-0 items-center border-b border-base-200 px-2 dark:border-base-700"
-      :class="collapsed ? 'justify-center' : 'gap-3 px-3'"
+      class="flex h-12 shrink-0 items-center px-2"
+      :class="[
+        collapsed ? 'justify-center' : 'gap-3 px-3',
+        transparent
+          ? 'border-b border-accent-500/15'
+          : 'border-b border-base-200 dark:border-base-700',
+      ]"
     >
       <div
-        class="flex h-8 w-8 shrink-0 items-center justify-center border border-accent-600 bg-accent-500 text-base-950"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-accent-600 bg-accent-500 text-base-950"
       >
         <FaIcon :icon="['fas', 'crosshairs']" class="text-xs" />
       </div>
@@ -60,7 +72,7 @@ const collapsed = useStorage('autocrawl-sidebar-collapsed', true)
       >
         <button
           :class="[
-            'group relative flex w-full items-center font-mono text-2xs font-medium uppercase tracking-ops transition-colors',
+            'group relative flex w-full items-center rounded-md font-mono text-2xs font-medium uppercase tracking-ops transition-colors',
             collapsed ? 'h-10 justify-center' : 'h-10 gap-3 px-2',
             isActive
               ? 'bg-accent-500/10 text-accent-700 dark:bg-accent-500/15 dark:text-accent-300'
@@ -87,7 +99,7 @@ const collapsed = useStorage('autocrawl-sidebar-collapsed', true)
     </nav>
 
     <button
-      class="m-1.5 flex h-8 items-center justify-center border border-base-200 text-base-500 transition-colors hover:border-base-300 hover:bg-base-50 hover:text-base-800 dark:border-base-700 dark:text-base-400 dark:hover:border-base-600 dark:hover:bg-base-800 dark:hover:text-base-100"
+      class="m-1.5 flex h-8 items-center justify-center rounded-md border border-base-200 text-base-500 transition-colors hover:border-base-300 hover:bg-base-50 hover:text-base-800 dark:border-base-700 dark:text-base-400 dark:hover:border-base-600 dark:hover:bg-base-800 dark:hover:text-base-100"
       :class="collapsed ? '' : 'gap-2 px-2'"
       :title="collapsed ? 'Buka' : 'Tutup'"
       @click="collapsed = !collapsed"

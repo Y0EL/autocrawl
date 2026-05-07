@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>test_agent · forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1c1a17;
+  --bg-grain:#1f1c19;
+  --surface:#252220;
+  --surface-2:#2d2926;
+  --surface-3:#34302c;
+  --border:#3a3531;
+  --border-soft:#2f2b27;
+  --text:#ece4d4;
+  --text-2:#b8ad9b;
+  --text-3:#8a8074;
+  --accent:#d97757;
+  --accent-2:#e3987a;
+  --accent-soft:#3a2620;
+  --ok:#7ca982;
+  --warn:#e0b872;
+  --err:#c26b58;
+  --tier-tiny:#7ca982;
+  --tier-light:#7aa6cc;
+  --tier-heavy:#c79152;
+  --tier-embedding:#a280bd;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(217,119,87,.08), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(122,166,204,.05), transparent 60%),
+    var(--bg);
+  color:var(--text);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  font-size:14px;
+  line-height:1.5;
+  letter-spacing:-0.005em;
+  overflow:hidden;
+}
+.serif{font-family:'Crimson Pro',Georgia,serif;letter-spacing:-.01em}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.smcaps{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+button{font-family:inherit;cursor:pointer}
+
+/* layout shell */
+.shell{display:grid;grid-template-rows:54px 1fr;height:100vh}
+header.bar{
+  display:flex;align-items:center;gap:14px;padding:0 18px;
+  border-bottom:1px solid var(--border-soft);
+  background:linear-gradient(180deg, rgba(45,41,38,.6), rgba(28,26,23,.6));
+  backdrop-filter:blur(8px);
+}
+.brand{display:flex;align-items:center;gap:10px}
+.brand .glyph{
+  width:22px;height:22px;border-radius:6px;
+  background:linear-gradient(135deg,var(--accent) 0%, #b85a3f 100%);
+  position:relative;box-shadow:0 0 0 1px rgba(217,119,87,.3), 0 4px 14px rgba(217,119,87,.18);
+}
+.brand .glyph::after{
+  content:"";position:absolute;inset:5px;border-radius:3px;
+  background:radial-gradient(circle at 30% 30%, rgba(255,220,200,.55), transparent 60%);
+}
+.brand .name{font-family:'Crimson Pro',serif;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.brand .name .sub{color:var(--text-3);font-style:italic;margin-left:6px;font-weight:400}
+.bar .spacer{flex:1}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 11px;border-radius:99px;border:1px solid var(--border);
+  background:var(--surface);font-size:12px;color:var(--text-2);
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--text-3)}
+.pill.ok .dot{background:var(--ok);box-shadow:0 0 8px rgba(124,169,130,.6)}
+.pill.warn .dot{background:var(--warn)}
+.pill.err .dot{background:var(--err);box-shadow:0 0 8px rgba(194,107,88,.6)}
+.pill code{font-family:'JetBrains Mono',monospace;color:var(--text-2);font-size:11.5px}
+.iconbtn{
+  width:30px;height:30px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
+}
+.iconbtn:hover{color:var(--text);border-color:var(--accent)}
+
+/* main split */
+main{display:grid;grid-template-columns:340px 1fr;overflow:hidden}
+aside.rail{
+  border-right:1px solid var(--border-soft);
+  display:flex;flex-direction:column;overflow:hidden;
+  background:linear-gradient(180deg, rgba(37,34,32,.4), rgba(28,26,23,.6));
+}
+.rail-head{padding:16px 18px 12px;border-bottom:1px solid var(--border-soft)}
+.rail-head h2{margin:0 0 4px;font-family:'Crimson Pro',serif;font-size:18px;font-weight:600}
+.rail-head .meta{font-size:12px;color:var(--text-3)}
+.rail-search{margin:10px 14px 0;padding:8px 10px;background:var(--surface);
+  border:1px solid var(--border-soft);border-radius:8px;font-size:12.5px;color:var(--text);
+  outline:none;transition:border-color .15s}
+.rail-search:focus{border-color:var(--accent)}
+.rail-list{flex:1;overflow-y:auto;padding:8px 10px 16px}
+.rail-list::-webkit-scrollbar{width:8px}
+.rail-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.tier-group{margin-top:12px}
+.tier-group:first-child{margin-top:4px}
+.tier-group h3{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:0 8px;
+  font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.tier-group h3 .count{color:var(--text-3);font-weight:500;letter-spacing:0;text-transform:none;font-size:11px}
+.model-card{
+  padding:10px 12px;margin:3px 0;border-radius:9px;border:1px solid transparent;
+  background:var(--surface);cursor:pointer;transition:all .12s ease;position:relative;
+}
+.model-card:hover{background:var(--surface-2);border-color:var(--border)}
+.model-card.selected{
+  background:linear-gradient(135deg, rgba(217,119,87,.15), rgba(217,119,87,.04));
+  border-color:rgba(217,119,87,.5);
+}
+.model-card.selected::before{
+  content:"";position:absolute;left:-10px;top:8px;bottom:8px;width:2px;
+  background:var(--accent);border-radius:2px;
+}
+.model-card .row1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.model-card .name{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500;color:var(--text)}
+.tier-badge{
+  font-size:9.5px;padding:2px 6px;border-radius:4px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;flex-shrink:0;
+}
+.tier-badge.tiny{background:rgba(124,169,130,.16);color:var(--tier-tiny)}
+.tier-badge.light{background:rgba(122,166,204,.16);color:var(--tier-light)}
+.tier-badge.heavy{background:rgba(199,145,82,.18);color:var(--tier-heavy)}
+.tier-badge.embedding{background:rgba(162,128,189,.18);color:var(--tier-embedding)}
+.model-card .row2{display:flex;align-items:center;gap:8px;margin-top:5px;font-size:11px;color:var(--text-3)}
+.model-card .row2 .dotsep::before{content:"·";margin:0 4px;color:var(--border)}
+
+/* canvas */
+section.canvas{display:flex;flex-direction:column;overflow:hidden}
+.tabs{
+  display:flex;gap:2px;padding:0 22px;border-bottom:1px solid var(--border-soft);
+  background:linear-gradient(180deg, rgba(37,34,32,.3), transparent);
+}
+.tab{
+  padding:14px 16px;border:none;background:transparent;color:var(--text-3);
+  font-size:13px;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;
+  display:flex;align-items:center;gap:8px;transition:all .15s;
+}
+.tab:hover{color:var(--text-2)}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.tab .kbd{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3);
+  border:1px solid var(--border);padding:1px 5px;border-radius:3px}
+.panes{flex:1;overflow-y:auto;padding:24px 28px 80px}
+.panes::-webkit-scrollbar{width:10px}
+.panes::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
+
+/* shared bits */
+.section-title{font-family:'Crimson Pro',serif;font-size:22px;font-weight:600;margin:0 0 6px}
+.section-sub{color:var(--text-3);font-size:13px;margin-bottom:18px;max-width:680px}
+.section-sub b{color:var(--text-2);font-weight:500}
+
+.controls{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:14px 16px;border:1px solid var(--border-soft);border-radius:12px;
+  background:var(--surface);margin-bottom:18px;
+}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.field select, .field input[type="number"], .field input[type="text"]{
+  background:var(--surface-2);color:var(--text);border:1px solid var(--border);
+  border-radius:7px;padding:7px 10px;font-size:13px;font-family:inherit;outline:none;
+  min-width:180px;transition:border-color .15s;
+}
+.field select:focus, .field input:focus{border-color:var(--accent)}
+.field.compact select, .field.compact input{min-width:90px}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2);cursor:pointer}
+.toggle input{appearance:none;width:30px;height:17px;background:var(--surface-3);
+  border-radius:99px;position:relative;cursor:pointer;border:1px solid var(--border);transition:.15s}
+.toggle input::after{content:"";position:absolute;top:1px;left:1px;width:13px;height:13px;
+  background:var(--text-2);border-radius:50%;transition:.15s}
+.toggle input:checked{background:rgba(217,119,87,.3);border-color:var(--accent)}
+.toggle input:checked::after{transform:translateX(13px);background:var(--accent)}
+
+.btn{
+  background:var(--accent);color:#1a1714;border:none;padding:8px 16px;
+  border-radius:8px;font-weight:600;font-size:13px;
+  display:inline-flex;align-items:center;gap:7px;
+  box-shadow:0 1px 0 rgba(255,255,255,.15) inset, 0 4px 14px rgba(217,119,87,.25);
+  transition:all .12s;
+}
+.btn:hover{background:var(--accent-2);transform:translateY(-1px);box-shadow:0 6px 18px rgba(217,119,87,.32)}
+.btn:disabled{background:var(--border);color:var(--text-3);cursor:not-allowed;box-shadow:none;transform:none}
+.btn.ghost{background:transparent;color:var(--text-2);border:1px solid var(--border);box-shadow:none}
+.btn.ghost:hover{color:var(--text);border-color:var(--accent);background:rgba(217,119,87,.08)}
+
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{
+  background:var(--surface);border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;
+  position:relative;overflow:hidden;
+}
+.tile .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:6px}
+.tile .val{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.tile .val .unit{font-size:13px;color:var(--text-3);font-weight:500;margin-left:3px}
+.tile.accent{border-color:rgba(217,119,87,.35);background:linear-gradient(135deg, rgba(217,119,87,.10), var(--surface))}
+.tile.accent .val{color:var(--accent-2)}
+
+.card{background:var(--surface);border:1px solid var(--border-soft);border-radius:12px;padding:18px;margin-bottom:14px}
+.card h4{margin:0 0 12px;font-family:'Crimson Pro',serif;font-size:16px;font-weight:600;color:var(--text-2)}
+
+.output{
+  background:#161311;border:1px solid var(--border-soft);border-radius:10px;
+  padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.6;
+  white-space:pre-wrap;color:#d8cfbe;max-height:360px;overflow-y:auto;
+}
+.output::-webkit-scrollbar{width:8px}
+.output::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.output .json-key{color:#a280bd}
+.output .json-str{color:#7ca982}
+.output .json-num{color:#e0b872}
+.output .json-bool{color:#7aa6cc}
+.output .cursor{display:inline-block;width:7px;height:14px;background:var(--accent);
+  vertical-align:text-bottom;margin-left:1px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.empty{padding:38px 18px;text-align:center;color:var(--text-3);font-size:13px}
+.empty .icon{font-size:30px;margin-bottom:8px;opacity:.5;font-family:'Crimson Pro',serif}
+
+/* sweep table */
+table.sweep{width:100%;border-collapse:collapse;font-size:13px}
+table.sweep th{
+  text-align:left;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);
+  font-weight:600;padding:10px 10px;border-bottom:1px solid var(--border);
+}
+table.sweep td{padding:11px 10px;border-bottom:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+table.sweep td.name{font-family:'JetBrains Mono',monospace;font-size:12.5px}
+table.sweep tr:hover td{background:rgba(255,255,255,.015)}
+table.sweep tr.running td{background:rgba(217,119,87,.06)}
+.bar{height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;min-width:80px;position:relative}
+.bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:3px;transition:width .4s}
+.muted{color:var(--text-3)}
+.spinner{
+  width:13px;height:13px;border:1.5px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* histogram */
+.hist{display:flex;align-items:flex-end;gap:3px;height:130px;padding:14px 0 0;border-bottom:1px solid var(--border-soft);position:relative}
+.hist .col{flex:1;background:linear-gradient(180deg,var(--accent-2),var(--accent));border-radius:2px 2px 0 0;min-height:2px;transition:height .3s}
+.hist .col.fail{background:var(--err);opacity:.6}
+.hist-axis{display:flex;justify-content:space-between;padding-top:6px;font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace}
+.markers{position:absolute;inset:0;pointer-events:none}
+.marker{position:absolute;top:0;bottom:0;border-left:1px dashed rgba(255,255,255,.18)}
+.marker .lab{position:absolute;top:-2px;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:4px;padding:1px 5px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-2);
+  transform:translateX(-50%)}
+
+/* toast log */
+.toaster{position:fixed;bottom:14px;right:14px;display:flex;flex-direction:column-reverse;gap:6px;z-index:50;max-width:380px}
+.toast{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:8px 12px;
+  font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);animation:slidein .25s ease;
+}
+.toast.ok{border-left:3px solid var(--ok)}
+.toast.err{border-left:3px solid var(--err)}
+.toast .ts{font-family:'JetBrains Mono',monospace;color:var(--text-3);font-size:11px}
+@keyframes slidein{from{transform:translateX(20px);opacity:0}}
+
+/* modal-y bits */
+.no-model{
+  padding:14px 18px;background:rgba(217,119,87,.08);border:1px solid rgba(217,119,87,.3);
+  border-radius:11px;color:var(--accent-2);font-size:13px;display:flex;align-items:center;gap:10px;
+}
+.no-model::before{content:"◆";font-family:'Crimson Pro',serif;font-size:18px}
+
+.kbd-hint{position:fixed;bottom:14px;left:14px;font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace}
+.kbd-hint kbd{background:var(--surface-2);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
+
+/* compare A/B */
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.compare-col{min-width:0}
+.compare-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:0 4px}
+.badge-off,.badge-on{
+  font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  padding:4px 9px;border-radius:5px;
+}
+.badge-off{background:rgba(124,169,130,.16);color:var(--ok);border:1px solid rgba(124,169,130,.3)}
+.badge-on{background:rgba(162,128,189,.18);color:#b9a3d0;border:1px solid rgba(162,128,189,.3)}
+.compare-headline{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+.headline-tile{padding:14px 16px;border-radius:9px;border:1px solid var(--border-soft);background:var(--surface-2)}
+.headline-tile .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:6px}
+.headline-tile .pair{display:flex;align-items:baseline;gap:10px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.headline-tile .pair .a{color:var(--ok);font-weight:600;font-size:18px}
+.headline-tile .pair .b{color:#b9a3d0;font-weight:600;font-size:18px}
+.headline-tile .pair .arrow{color:var(--text-3);font-size:14px}
+.headline-tile .delta{margin-top:4px;font-size:11.5px;font-family:'JetBrains Mono',monospace}
+.headline-tile .delta.win{color:var(--ok)}
+.headline-tile .delta.lose{color:var(--err)}
+.thinking-tag{
+  display:inline-block;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  padding:2px 6px;border-radius:4px;background:rgba(162,128,189,.16);color:#b9a3d0;margin-right:6px;
+}
+.output.thinking-style{background:#181517;border-style:dashed;color:#a59ab2}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="bar">
+    <div class="brand">
+      <div class="glyph"></div>
+      <div class="name">test_agent<span class="sub">forge</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div id="health-pill" class="pill"><span class="dot"></span><span id="health-label">checking…</span></div>
+    <div class="pill"><span class="smcaps" style="letter-spacing:.16em">target</span> <code>{{ ollama_url }}</code></div>
+    <button class="iconbtn" id="refresh-btn" title="Refresh health & models">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 4 21 11 14 11"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <aside class="rail">
+      <div class="rail-head">
+        <h2>Models</h2>
+        <div class="meta" id="rail-meta">—</div>
+        <input id="rail-search" class="rail-search" placeholder="Filter by name or family…" />
+      </div>
+      <div id="rail-list" class="rail-list">
+        <div class="empty"><div class="icon">◇</div>Probing the daemon…</div>
+      </div>
+    </aside>
+
+    <section class="canvas">
+      <div class="tabs">
+        <button class="tab active" data-tab="single"><span>Single Run</span><span class="kbd">1</span></button>
+        <button class="tab" data-tab="sweep"><span>Latency Sweep</span><span class="kbd">2</span></button>
+        <button class="tab" data-tab="conc"><span>Concurrency</span><span class="kbd">3</span></button>
+        <button class="tab" data-tab="embed"><span>Embeddings</span><span class="kbd">4</span></button>
+        <button class="tab" data-tab="stream"><span>Stream Inspector</span><span class="kbd">5</span></button>
+      </div>
+      <div class="panes">
+
+        <!-- ============== SINGLE ============== -->
+        <div class="pane" data-pane="single">
+          <h2 class="section-title serif">Single run</h2>
+          <p class="section-sub">Fire one prompt N times and read the timing breakdown. Use this to <b>tease apart</b> load time, prompt-eval time, and generation time — the three numbers that decide whether a model is fit for the tier.</p>
+
+          <div id="no-model-1" class="no-model" style="display:none">Pick a model from the left rail to begin.</div>
+          <div class="controls">
+            <div class="field"><label>Selected model</label><div class="mono" id="single-model" style="font-size:13px;color:var(--text-2)">—</div></div>
+            <div class="field"><label>Workload</label>
+              <select id="single-preset">
+                <option value="scope_classify">Vendor scope classifier (tiny)</option>
+                <option value="discovery">Discovery query expansion (light)</option>
+                <option value="enrichment_merge">Enrichment merge (heavy ~6KB)</option>
+                <option value="freeform">Freeform smoke test</option>
+              </select>
+            </div>
+            <div class="field compact"><label>Runs</label><input id="single-runs" type="number" min="1" max="10" value="3" /></div>
+            <div class="field compact"><label>num_predict</label><input id="single-np" type="number" min="0" value="" placeholder="auto" /></div>
+            <div class="field compact"><label>Thinking</label>
+              <select id="single-think">
+                <option value="auto">Auto (model default)</option>
+                <option value="off">Force OFF</option>
+                <option value="on">Force ON</option>
+              </select>
+            </div>
+            <label class="toggle"><input type="checkbox" id="single-structured" checked /> Structured (JSON schema)</label>
+            <button class="btn" id="single-run">▶ Run benchmark</button>
+            <button class="btn ghost" id="single-compare" title="Run twice — once with think OFF, once ON">⇄ Compare A/B</button>
+          </div>
+
+          <div class="metrics" id="single-metrics" style="display:none"></div>
+
+          <div class="card" id="single-runs-card" style="display:none">
+            <h4>Per-run breakdown</h4>
+            <table class="sweep" id="single-table"><thead><tr>
+              <th>#</th><th>Wall (ms)</th><th>Load</th><th>Prompt eval</th><th>Generate</th>
+              <th>Tokens</th><th>Tok/s</th>
+            </tr></thead><tbody></tbody></table>
+            <div style="margin-top:6px;font-size:11px;color:var(--text-3)" class="mono">
+              Run 1 = cold (model load); subsequent runs = warm.
+              "Load" near 0 means the model was already resident in VRAM.
+            </div>
+          </div>
+
+          <div class="card" id="single-output-card" style="display:none">
+            <h4>Last response</h4>
+            <pre class="output" id="single-output"></pre>
+          </div>
+
+          <!-- A/B compare panel -->
+          <div id="single-compare-panel" style="display:none">
+            <h2 class="section-title serif" style="margin-top:8px">Think vs no-think</h2>
+            <p class="section-sub">Same prompt, same model, two passes. <b>think=False runs first</b> (cold load, production setting); <b>think=True runs second</b> (warm cache — gives thinking the easier comparison, and it still usually loses on this workload).</p>
+            <div id="compare-headline" class="card" style="background:linear-gradient(135deg, rgba(217,119,87,.10), var(--surface));border-color:rgba(217,119,87,.25)"></div>
+            <div class="compare-grid">
+              <div class="compare-col" data-side="off">
+                <div class="compare-head"><span class="badge-off">think OFF</span><span class="muted mono" data-role="model"></span></div>
+                <div class="metrics" data-role="metrics"></div>
+                <div class="card"><h4>Output</h4><pre class="output" data-role="output"></pre></div>
+              </div>
+              <div class="compare-col" data-side="on">
+                <div class="compare-head"><span class="badge-on">think ON</span><span class="muted mono" data-role="model"></span></div>
+                <div class="metrics" data-role="metrics"></div>
+                <div class="card"><h4>Reasoning trace</h4><pre class="output" data-role="thinking"></pre></div>
+                <div class="card"><h4>Output</h4><pre class="output" data-role="output"></pre></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============== SWEEP ============== -->
+        <div class="pane" data-pane="sweep" hidden>
+          <h2 class="section-title serif">Latency sweep</h2>
+          <p class="section-sub">Run the same workload across <b>every chat-capable model</b> the daemon serves. Compare cold vs warm wall time and steady-state tokens/sec — pick the fastest model that still answers correctly.</p>
+
+          <div class="controls">
+            <div class="field"><label>Workload</label>
+              <select id="sweep-preset">
+                <option value="scope_classify">Vendor scope classifier (tiny)</option>
+                <option value="discovery">Discovery query expansion (light)</option>
+                <option value="enrichment_merge">Enrichment merge (heavy ~6KB)</option>
+                <option value="freeform">Freeform smoke test</option>
+              </select>
+            </div>
+            <div class="field compact"><label>Runs / model</label><input id="sweep-runs" type="number" min="1" max="5" value="2" /></div>
+            <label class="toggle"><input type="checkbox" id="sweep-structured" checked /> Structured</label>
+            <label class="toggle"><input type="checkbox" id="sweep-tier-only" /> Tier-matched only</label>
+            <button class="btn" id="sweep-run">▶ Sweep all</button>
+            <button class="btn ghost" id="sweep-cancel" disabled>■ Stop</button>
+          </div>
+
+          <div class="card" id="sweep-card" style="display:none">
+            <h4>Comparison</h4>
+            <table class="sweep" id="sweep-table"><thead><tr>
+              <th>Model</th><th>Tier</th><th>Cold (ms)</th><th>Warm (ms)</th><th>Tok/s</th><th>Speed</th><th>Status</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+
+        <!-- ============== CONCURRENCY ============== -->
+        <div class="pane" data-pane="conc" hidden>
+          <h2 class="section-title serif">Concurrency stress</h2>
+          <p class="section-sub">Production fans out to <b>16 enrichment calls in parallel</b>. Single-request latency lies — what matters is what happens when N requests hit the daemon at once. This view warms the model once, then fires N parallel chats and surfaces p50/p95/p99 plus the histogram.</p>
+
+          <div class="controls">
+            <div class="field"><label>Selected model</label><div class="mono" id="conc-model" style="font-size:13px;color:var(--text-2)">—</div></div>
+            <div class="field compact"><label>Concurrency</label><input id="conc-n" type="number" min="1" max="64" value="8" /></div>
+            <div class="field compact"><label>num_predict</label><input id="conc-np" type="number" min="1" max="2048" value="64" /></div>
+            <div class="field"><label>Workload</label>
+              <select id="conc-preset">
+                <option value="freeform">Freeform short reply</option>
+                <option value="scope_classify">Scope classifier (tiny)</option>
+                <option value="discovery">Discovery (light)</option>
+              </select>
+            </div>
+            <div class="field compact"><label>Thinking</label>
+              <select id="conc-think">
+                <option value="auto">Auto</option>
+                <option value="off">Force OFF</option>
+                <option value="on">Force ON</option>
+              </select>
+            </div>
+            <label class="toggle"><input type="checkbox" id="conc-structured" /> Structured</label>
+            <button class="btn" id="conc-run">▶ Stress test</button>
+          </div>
+
+          <div class="metrics" id="conc-metrics" style="display:none"></div>
+          <div class="card" id="conc-hist-card" style="display:none">
+            <h4>Latency histogram</h4>
+            <div class="hist" id="conc-hist"></div>
+            <div class="hist-axis" id="conc-hist-axis"><span></span><span></span></div>
+            <div style="margin-top:8px;font-size:11.5px;color:var(--text-3)">
+              <span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;vertical-align:-1px"></span> success
+              &nbsp;&nbsp;
+              <span style="display:inline-block;width:10px;height:10px;background:var(--err);border-radius:2px;vertical-align:-1px"></span> failure
+            </div>
+          </div>
+        </div>
+
+        <!-- ============== EMBED ============== -->
+        <div class="pane" data-pane="embed" hidden>
+          <h2 class="section-title serif">Embeddings</h2>
+          <p class="section-sub">The crawler embeds <b>vendor name + domain</b> for vector dedup. Embedding latency caps fanout, so it deserves its own benchmark. Pick the embedding model and watch per-call wall time.</p>
+
+          <div class="controls">
+            <div class="field"><label>Selected model</label><div class="mono" id="embed-model" style="font-size:13px;color:var(--text-2)">— pick an embedding model</div></div>
+            <button class="btn" id="embed-run">▶ Run embeddings</button>
+          </div>
+
+          <div class="metrics" id="embed-metrics" style="display:none"></div>
+          <div class="card" id="embed-table-card" style="display:none">
+            <h4>Per-call timing</h4>
+            <table class="sweep" id="embed-table"><thead><tr>
+              <th>#</th><th>Text</th><th>Wall (ms)</th><th>Dim</th><th>Preview</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+
+        <!-- ============== STREAM ============== -->
+        <div class="pane" data-pane="stream" hidden>
+          <h2 class="section-title serif">Stream inspector</h2>
+          <p class="section-sub">Watch tokens land in real time. <b>TTFT</b> (time to first token) is what users feel; the rest is throughput. For interactive use, optimize TTFT; for batch crawling, optimize tokens/sec.</p>
+
+          <div class="controls">
+            <div class="field"><label>Selected model</label><div class="mono" id="stream-model" style="font-size:13px;color:var(--text-2)">—</div></div>
+            <div class="field"><label>Workload</label>
+              <select id="stream-preset">
+                <option value="scope_classify">Vendor scope classifier</option>
+                <option value="discovery">Discovery query expansion</option>
+                <option value="enrichment_merge">Enrichment merge (~6KB)</option>
+                <option value="freeform">Freeform smoke test</option>
+              </select>
+            </div>
+            <div class="field compact"><label>Thinking</label>
+              <select id="stream-think">
+                <option value="auto">Auto</option>
+                <option value="off">Force OFF</option>
+                <option value="on">Force ON</option>
+              </select>
+            </div>
+            <label class="toggle"><input type="checkbox" id="stream-structured" /> Structured</label>
+            <button class="btn" id="stream-run">▶ Stream</button>
+            <button class="btn ghost" id="stream-stop" disabled>■ Stop</button>
+          </div>
+
+          <div class="metrics" id="stream-metrics" style="display:none"></div>
+          <div class="card" id="stream-thinking-card" style="display:none">
+            <h4><span class="thinking-tag">thinking</span>Reasoning trace</h4>
+            <pre class="output thinking-style" id="stream-thinking"></pre>
+          </div>
+          <div class="card">
+            <h4>Live token stream</h4>
+            <pre class="output" id="stream-out"><span class="muted">Awaiting stream…</span></pre>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toaster" class="toaster"></div>
+<div class="kbd-hint"><kbd>1</kbd>–<kbd>5</kbd> tabs · <kbd>R</kbd> refresh · <kbd>/</kbd> search</div>
+
+<script>
+const $ = (q, r=document) => r.querySelector(q);
+const $$ = (q, r=document) => Array.from(r.querySelectorAll(q));
+const fmt = {
+  ms: v => v == null ? '—' : (v >= 1000 ? (v/1000).toFixed(2)+'s' : Math.round(v)+''),
+  msPlain: v => v == null ? '—' : Math.round(v),
+  num: v => v == null ? '—' : v.toLocaleString(),
+};
+const state = { models: [], selected: null, presets: {}, sweepCancel: false, streamCtl: null };
+
+// ----- toaster -----
+function toast(msg, kind='ok'){
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<span class="ts">${new Date().toLocaleTimeString('en-GB')}</span><span>${msg}</span>`;
+  $('#toaster').appendChild(el);
+  setTimeout(() => el.remove(), 5500);
+}
+
+// ----- tabs -----
+$$('.tab').forEach(t => t.onclick = () => activate(t.dataset.tab));
+function activate(name){
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.pane').forEach(p => p.hidden = p.dataset.pane !== name);
+}
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,select,textarea')) return;
+  const map = {'1':'single','2':'sweep','3':'conc','4':'embed','5':'stream'};
+  if (map[e.key]) activate(map[e.key]);
+  if (e.key === 'r' || e.key === 'R') refreshHealth();
+  if (e.key === '/') { e.preventDefault(); $('#rail-search').focus(); }
+});
+
+// ----- health & rail -----
+async function refreshHealth(){
+  const pill = $('#health-pill'), label = $('#health-label');
+  pill.className = 'pill'; label.textContent = 'checking…';
+  try {
+    const r = await fetch('/api/health');
+    const j = await r.json();
+    if (j.ok) {
+      pill.classList.add('ok');
+      label.textContent = `vpn ok · ${j.models.length} models · ${fmt.ms(j.tags_rtt_ms)}`;
+      state.models = j.models;
+      renderRail();
+      $('#rail-meta').textContent = `${j.models.length} loaded · /api/tags ${fmt.ms(j.tags_rtt_ms)}`;
+      toast(`Connected — ${j.models.length} models`, 'ok');
+    } else if (j.stage === 'tcp') {
+      pill.classList.add('err');
+      label.textContent = 'vpn down';
+      $('#rail-list').innerHTML = `<div class="empty"><div class="icon">⚠</div>${j.hint}</div>`;
+      toast('VPN unreachable. Reconnect & retry.', 'err');
+    } else {
+      pill.classList.add('warn');
+      label.textContent = 'daemon issue';
+      $('#rail-list').innerHTML = `<div class="empty"><div class="icon">⚠</div>${j.hint}<br><br><span class="mono">${j.error||''}</span></div>`;
+    }
+  } catch(e) {
+    pill.classList.add('err');
+    label.textContent = 'unreachable';
+    toast('Bench backend unreachable: '+e, 'err');
+  }
+}
+$('#refresh-btn').onclick = refreshHealth;
+
+function renderRail(){
+  const q = $('#rail-search').value.trim().toLowerCase();
+  const list = $('#rail-list');
+  list.innerHTML = '';
+  const tiers = [['embedding','Embeddings'],['tiny','Tiny tier'],['light','Light tier'],['heavy','Heavy tier']];
+  let any = false;
+  for (const [tier, label] of tiers) {
+    const items = state.models.filter(m =>
+      m.tier === tier &&
+      (!q || (m.name.toLowerCase().includes(q) || (m.family||'').toLowerCase().includes(q)))
+    );
+    if (!items.length) continue;
+    any = true;
+    const group = document.createElement('div');
+    group.className = 'tier-group';
+    group.innerHTML = `<h3>${label} <span class="count">(${items.length})</span></h3>`;
+    for (const m of items) {
+      const card = document.createElement('div');
+      card.className = 'model-card' + (state.selected === m.name ? ' selected' : '');
+      card.dataset.name = m.name;
+      card.innerHTML = `
+        <div class="row1">
+          <div class="name">${m.name}</div>
+          <span class="tier-badge ${m.tier}">${m.tier}</span>
+        </div>
+        <div class="row2">
+          <span>${m.parameter_size||'?'}</span>
+          <span class="dotsep">${m.size_gb} GB</span>
+          <span class="dotsep">${m.quantization||'?'}</span>
+        </div>`;
+      card.onclick = () => selectModel(m.name);
+      group.appendChild(card);
+    }
+    list.appendChild(group);
+  }
+  if (!any) list.innerHTML = `<div class="empty"><div class="icon">◇</div>No models match.</div>`;
+}
+$('#rail-search').addEventListener('input', renderRail);
+
+function selectModel(name){
+  state.selected = name;
+  renderRail();
+  $('#single-model').textContent = name;
+  $('#conc-model').textContent = name;
+  $('#stream-model').textContent = name;
+  const m = state.models.find(x => x.name === name);
+  if (m && m.tier === 'embedding') $('#embed-model').textContent = name;
+  $('#no-model-1').style.display = 'none';
+}
+
+// ----- presets -----
+async function loadPresets(){
+  const r = await fetch('/api/presets');
+  state.presets = await r.json();
+}
+
+// ----- helpers -----
+function tile(label, val, accent=false){
+  return `<div class="tile ${accent?'accent':''}"><div class="lab">${label}</div><div class="val">${val}</div></div>`;
+}
+function valUnit(v, unit){
+  if (v == null) return '—';
+  return `${typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:1}) : v}<span class="unit">${unit}</span>`;
+}
+function prettyJson(s){
+  try {
+    const o = JSON.parse(s);
+    return JSON.stringify(o, null, 2)
+      .replace(/("[^"]+"):/g, '<span class="json-key">$1</span>:')
+      .replace(/: (".*?")/g, ': <span class="json-str">$1</span>')
+      .replace(/: (-?\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+      .replace(/: (true|false|null)/g, ': <span class="json-bool">$1</span>');
+  } catch(e) { return s; }
+}
+
+// ----- single run -----
+function singleBody(extra = {}) {
+  const body = {
+    model: state.selected,
+    preset: $('#single-preset').value,
+    runs: parseInt($('#single-runs').value || '1'),
+    structured: $('#single-structured').checked,
+    think: $('#single-think').value,
+    ...extra,
+  };
+  const np = parseInt($('#single-np').value);
+  if (!isNaN(np) && np > 0) body.num_predict = np;
+  return body;
+}
+
+$('#single-run').onclick = async () => {
+  if (!state.selected) { $('#no-model-1').style.display = 'flex'; return; }
+  const btn = $('#single-run');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Running…';
+  $('#single-compare-panel').style.display = 'none';
+  try {
+    const r = await fetch('/api/benchmark/single', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(singleBody())});
+    const j = await r.json();
+    renderSingle(j);
+    toast(`Single run done — ${j.summary.ok}/${j.summary.runs} ok`, j.summary.ok ? 'ok' : 'err');
+  } catch(e) {
+    toast('Single run failed: '+e, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '▶ Run benchmark';
+  }
+};
+
+$('#single-compare').onclick = async () => {
+  if (!state.selected) { $('#no-model-1').style.display = 'flex'; return; }
+  const btn = $('#single-compare');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>A/B running…';
+  // hide the regular single-run UI to avoid confusion
+  $('#single-metrics').style.display = 'none';
+  $('#single-runs-card').style.display = 'none';
+  $('#single-output-card').style.display = 'none';
+  try {
+    const r = await fetch('/api/benchmark/single', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(singleBody({compare_think: true}))});
+    const j = await r.json();
+    renderCompare(j);
+    const off = j.think_off.summary, on = j.think_on.summary;
+    const winner = (off.wall_ms_p50 ?? 0) < (on.wall_ms_p50 ?? 1e9) ? 'OFF' : 'ON';
+    toast(`Compare done — ${winner} wins on p50 wall`, 'ok');
+  } catch(e) {
+    toast('Compare failed: '+e, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '⇄ Compare A/B';
+  }
+};
+
+function renderCompare(j) {
+  const off = j.think_off, on = j.think_on;
+  const panel = $('#single-compare-panel');
+  panel.style.display = '';
+
+  // headline tiles: wall p50, completion tokens, tok/s
+  const cmp = (a, b, lower_is_better=true) => {
+    if (a == null || b == null) return null;
+    const delta = ((b - a) / a) * 100;
+    return {a, b, delta, winner: lower_is_better ? (a < b ? 'a' : 'b') : (a > b ? 'a' : 'b')};
+  };
+  const wallCmp = cmp(off.summary.wall_ms_p50, on.summary.wall_ms_p50, true);
+  const tokCmp  = cmp(off.summary.completion_tokens_avg, on.summary.completion_tokens_avg, true);
+  const tpsCmp  = cmp(off.summary.tokens_per_s_avg, on.summary.tokens_per_s_avg, false);
+
+  function headline(label, c, unit, fmt = v => Math.round(v)) {
+    if (!c) return `<div class="headline-tile"><div class="lab">${label}</div><div class="pair muted">—</div></div>`;
+    const aWin = c.winner === 'a';
+    const deltaSign = c.delta > 0 ? '+' : '';
+    const deltaCls = (c.winner === 'a') ? 'win' : 'lose';
+    return `<div class="headline-tile">
+      <div class="lab">${label}</div>
+      <div class="pair">
+        <span class="a">${fmt(c.a)}<span class="unit" style="color:var(--text-3);font-size:11px">${unit}</span></span>
+        <span class="arrow">vs</span>
+        <span class="b">${fmt(c.b)}<span class="unit" style="color:var(--text-3);font-size:11px">${unit}</span></span>
+      </div>
+      <div class="delta ${deltaCls}">${aWin ? 'OFF' : 'ON'} faster · ON is ${deltaSign}${c.delta.toFixed(1)}% ${c.delta > 0 ? 'slower' : 'faster'}</div>
+    </div>`;
+  }
+
+  $('#compare-headline').innerHTML = `<div class="compare-headline">
+    ${headline('p50 wall time', wallCmp, ' ms')}
+    ${headline('completion tokens', tokCmp, '')}
+    ${headline('tokens/sec', tpsCmp, ' tok/s', v => v.toFixed(0))}
+  </div>`;
+
+  // per-side metric tiles + outputs
+  for (const side of ['off','on']) {
+    const sideData = side === 'off' ? off : on;
+    const s = sideData.summary;
+    const col = panel.querySelector(`.compare-col[data-side="${side}"]`);
+    col.querySelector('[data-role="model"]').textContent = s.model;
+    col.querySelector('[data-role="metrics"]').innerHTML = [
+      tile('p50 wall', valUnit(s.wall_ms_p50, 'ms'), true),
+      tile('cold', valUnit(s.cold_wall_ms, 'ms')),
+      tile('warm', valUnit(s.warm_wall_ms, 'ms')),
+      tile('completion tok', valUnit(s.completion_tokens_avg, 'avg')),
+      tile('tokens/s', valUnit(s.tokens_per_s_avg, 'tok/s')),
+    ].join('');
+    const last = [...sideData.runs].reverse().find(r => r.ok);
+    col.querySelector('[data-role="output"]').innerHTML = last && last.content
+      ? prettyJson(last.content)
+      : '<span class="muted">(empty)</span>';
+    const thinkEl = col.querySelector('[data-role="thinking"]');
+    if (thinkEl) {
+      thinkEl.textContent = (last && last.thinking) ? last.thinking : '(no separate thinking trace — model emitted reasoning inline or not at all)';
+    }
+  }
+}
+function renderSingle(j){
+  const s = j.summary;
+  $('#single-metrics').style.display = '';
+  $('#single-metrics').innerHTML = [
+    tile('p50 wall', valUnit(s.wall_ms_p50, 'ms'), true),
+    tile('cold (run 1)', valUnit(s.cold_wall_ms, 'ms')),
+    tile('warm (last)', valUnit(s.warm_wall_ms, 'ms')),
+    tile('avg tokens/s', valUnit(s.tokens_per_s_avg, 'tok/s')),
+    tile('runs ok', `${s.ok}<span class="unit">/${s.runs}</span>`),
+  ].join('');
+  $('#single-runs-card').style.display = '';
+  const tb = $('#single-table tbody'); tb.innerHTML = '';
+  for (const r of j.runs) {
+    const tr = document.createElement('tr');
+    if (!r.ok) {
+      tr.innerHTML = `<td>${r.run}</td><td colspan="6" style="color:var(--err)">${r.error}</td>`;
+    } else {
+      tr.innerHTML = `
+        <td class="muted">${r.run}</td>
+        <td><b>${fmt.msPlain(r.wall_ms)}</b></td>
+        <td class="muted">${fmt.msPlain(r.load_ms)}</td>
+        <td class="muted">${fmt.msPlain(r.prompt_eval_ms)}</td>
+        <td>${fmt.msPlain(r.eval_ms)}</td>
+        <td class="muted">${r.prompt_tokens||'—'} / ${r.completion_tokens||'—'}</td>
+        <td>${r.tokens_per_s||'—'}</td>`;
+    }
+    tb.appendChild(tr);
+  }
+  const last = [...j.runs].reverse().find(r => r.ok);
+  if (last && last.content) {
+    $('#single-output-card').style.display = '';
+    $('#single-output').innerHTML = prettyJson(last.content) || '<span class="muted">(empty)</span>';
+  }
+}
+
+// ----- sweep -----
+$('#sweep-cancel').onclick = () => { state.sweepCancel = true; };
+$('#sweep-run').onclick = async () => {
+  const preset = $('#sweep-preset').value;
+  const runs = parseInt($('#sweep-runs').value || '2');
+  const structured = $('#sweep-structured').checked;
+  const tierOnly = $('#sweep-tier-only').checked;
+  const hint = state.presets[preset]?.tier_hint;
+  const targets = state.models.filter(m =>
+    m.tier !== 'embedding' && (!tierOnly || !hint || m.tier === hint)
+  );
+  if (!targets.length) { toast('No matching models.', 'err'); return; }
+
+  $('#sweep-card').style.display = '';
+  const tb = $('#sweep-table tbody'); tb.innerHTML = '';
+  const rows = {};
+  for (const m of targets) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="name">${m.name}</td><td><span class="tier-badge ${m.tier}">${m.tier}</span></td>
+      <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
+      <td><div class="bar"><div class="fill" style="width:0%"></div></div></td>
+      <td class="muted">queued</td>`;
+    tb.appendChild(tr); rows[m.name] = tr;
+  }
+  state.sweepCancel = false;
+  $('#sweep-cancel').disabled = false;
+  $('#sweep-run').disabled = true;
+
+  const results = [];
+  for (const m of targets) {
+    if (state.sweepCancel) { rows[m.name].cells[6].innerHTML = '<span class="muted">cancelled</span>'; continue; }
+    rows[m.name].classList.add('running');
+    rows[m.name].cells[6].innerHTML = '<span class="spinner"></span>running';
+    try {
+      const r = await fetch('/api/benchmark/single', {method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({model:m.name, preset, runs, structured})});
+      const j = await r.json();
+      results.push({m, s: j.summary, ok: j.summary.ok});
+      rows[m.name].classList.remove('running');
+      rows[m.name].cells[2].innerHTML = `<b>${fmt.msPlain(j.summary.cold_wall_ms)}</b>`;
+      rows[m.name].cells[3].innerHTML = `<b>${fmt.msPlain(j.summary.warm_wall_ms)}</b>`;
+      rows[m.name].cells[4].textContent = j.summary.tokens_per_s_avg ?? '—';
+      rows[m.name].cells[6].innerHTML = j.summary.ok ? '<span style="color:var(--ok)">✓ ok</span>' : '<span style="color:var(--err)">✗ failed</span>';
+    } catch(e) {
+      rows[m.name].classList.remove('running');
+      rows[m.name].cells[6].innerHTML = `<span style="color:var(--err)">✗ ${e}</span>`;
+    }
+  }
+  // normalize speed bars
+  const maxTps = Math.max(...results.map(r => r.s.tokens_per_s_avg || 0), 1);
+  for (const r of results) {
+    const pct = r.s.tokens_per_s_avg ? (r.s.tokens_per_s_avg / maxTps * 100).toFixed(0) : 0;
+    rows[r.m.name].cells[5].innerHTML = `<div class="bar"><div class="fill" style="width:${pct}%"></div></div>`;
+  }
+  $('#sweep-cancel').disabled = true;
+  $('#sweep-run').disabled = false;
+  toast(`Sweep complete — ${results.filter(r=>r.ok).length}/${targets.length} ok`, 'ok');
+};
+
+// ----- concurrency -----
+$('#conc-run').onclick = async () => {
+  if (!state.selected) { toast('Pick a model first.', 'err'); return; }
+  const btn = $('#conc-run');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Stressing…';
+  try {
+    const body = {
+      model: state.selected,
+      n: parseInt($('#conc-n').value || '8'),
+      preset: $('#conc-preset').value,
+      structured: $('#conc-structured').checked,
+      think: $('#conc-think').value,
+      num_predict: parseInt($('#conc-np').value || '64'),
+    };
+    const r = await fetch('/api/benchmark/concurrency', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    const j = await r.json();
+    renderConc(j);
+    toast(`Concurrency done — ${j.ok}/${j.concurrency} ok @ p95=${fmt.ms(j.p95_ms)}`, j.failed ? 'err':'ok');
+  } catch(e) { toast('Concurrency failed: '+e, 'err'); }
+  finally { btn.disabled = false; btn.innerHTML = '▶ Stress test'; }
+};
+function renderConc(j){
+  $('#conc-metrics').style.display = '';
+  $('#conc-metrics').innerHTML = [
+    tile('concurrency', `${j.concurrency}`),
+    tile('p50', valUnit(j.p50_ms, 'ms')),
+    tile('p95', valUnit(j.p95_ms, 'ms'), true),
+    tile('p99', valUnit(j.p99_ms, 'ms')),
+    tile('throughput', valUnit(j.throughput_req_per_s, 'req/s')),
+    tile('total wall', valUnit(j.wall_total_ms, 'ms')),
+    tile('ok / failed', `${j.ok}<span class="unit">/${j.failed}</span>`),
+  ].join('');
+  // histogram
+  const walls = j.results.map(r => r.wall_ms);
+  const max = Math.max(...walls), min = Math.min(...walls);
+  const buckets = 22;
+  const span = Math.max(max - min, 1);
+  const counts = new Array(buckets).fill(0).map(()=>({ok:0,fail:0}));
+  for (const r of j.results) {
+    const b = Math.min(buckets-1, Math.floor(((r.wall_ms - min) / span) * buckets));
+    if (r.ok) counts[b].ok++; else counts[b].fail++;
+  }
+  const peak = Math.max(...counts.map(c => c.ok + c.fail), 1);
+  const hist = $('#conc-hist'); hist.innerHTML = '';
+  for (const c of counts) {
+    const total = c.ok + c.fail;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column-reverse;flex:1;height:100%;justify-content:flex-start';
+    if (c.ok) {
+      const okBar = document.createElement('div');
+      okBar.className = 'col';
+      okBar.style.height = `${(c.ok / peak * 100).toFixed(1)}%`;
+      okBar.title = `${c.ok} ok`;
+      wrap.appendChild(okBar);
+    }
+    if (c.fail) {
+      const failBar = document.createElement('div');
+      failBar.className = 'col fail';
+      failBar.style.height = `${(c.fail / peak * 100).toFixed(1)}%`;
+      failBar.title = `${c.fail} fail`;
+      wrap.appendChild(failBar);
+    }
+    hist.appendChild(wrap);
+  }
+  $('#conc-hist-card').style.display = '';
+  $('#conc-hist-axis').innerHTML = `<span>${fmt.msPlain(min)} ms</span><span>${fmt.msPlain(max)} ms</span>`;
+}
+
+// ----- embeddings -----
+$('#embed-run').onclick = async () => {
+  if (!state.selected) { toast('Pick a model first.', 'err'); return; }
+  const m = state.models.find(x => x.name === state.selected);
+  if (!m || m.tier !== 'embedding') { toast('Selected model is not an embedding model.', 'err'); return; }
+  const btn = $('#embed-run'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Embedding…';
+  try {
+    const r = await fetch('/api/benchmark/embed', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({model: state.selected})});
+    const j = await r.json();
+    $('#embed-metrics').style.display = '';
+    $('#embed-metrics').innerHTML = [
+      tile('inputs', `${j.n}`),
+      tile('p50', valUnit(j.p50_ms, 'ms'), true),
+      tile('avg', valUnit(j.avg_ms, 'ms')),
+    ].join('');
+    $('#embed-table-card').style.display = '';
+    const tb = $('#embed-table tbody'); tb.innerHTML = '';
+    for (const x of j.results) {
+      const tr = document.createElement('tr');
+      if (x.ok) {
+        tr.innerHTML = `<td class="muted">${x.i+1}</td><td style="font-family:Inter,sans-serif">${x.text}</td>
+          <td><b>${fmt.msPlain(x.wall_ms)}</b></td><td>${x.dim}</td><td class="muted">[${x.preview.join(', ')}…]</td>`;
+      } else {
+        tr.innerHTML = `<td>${x.i+1}</td><td colspan="4" style="color:var(--err)">${x.error}</td>`;
+      }
+      tb.appendChild(tr);
+    }
+    toast('Embeddings done', 'ok');
+  } catch(e) { toast('Embed failed: '+e, 'err'); }
+  finally { btn.disabled = false; btn.innerHTML = '▶ Run embeddings'; }
+};
+
+// ----- stream -----
+$('#stream-run').onclick = async () => {
+  if (!state.selected) { toast('Pick a model first.', 'err'); return; }
+  const out = $('#stream-out'); out.textContent = '';
+  $('#stream-metrics').style.display = '';
+  $('#stream-metrics').innerHTML = tile('TTFT','<span class="spinner"></span>',true) + tile('wall','—') + tile('tokens','—') + tile('tok/s','—');
+  $('#stream-stop').disabled = false;
+  $('#stream-run').disabled = true;
+  const ctl = new AbortController(); state.streamCtl = ctl;
+  // reset thinking trace
+  $('#stream-thinking-card').style.display = 'none';
+  $('#stream-thinking').textContent = '';
+  const body = JSON.stringify({
+    model: state.selected,
+    preset: $('#stream-preset').value,
+    structured: $('#stream-structured').checked,
+    think: $('#stream-think').value,
+  });
+  try {
+    const resp = await fetch('/api/chat/stream', {method:'POST', headers:{'content-type':'application/json'}, body, signal: ctl.signal});
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let cursor = '<span class="cursor"></span>';
+    out.innerHTML = cursor;
+    let body_text = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const evt = buf.slice(0, idx); buf = buf.slice(idx+2);
+        const m = evt.match(/^event: (\w+)\ndata: (.*)$/s);
+        if (!m) continue;
+        const type = m[1]; const data = JSON.parse(m[2]);
+        if (type === 'ttft') {
+          $('#stream-metrics').children[0].querySelector('.val').innerHTML = valUnit(data.ttft_ms, 'ms');
+        } else if (type === 'thinking') {
+          $('#stream-thinking-card').style.display = '';
+          const tEl = $('#stream-thinking');
+          tEl.textContent += data.t;
+          tEl.scrollTop = tEl.scrollHeight;
+        } else if (type === 'token') {
+          body_text += data.t;
+          out.innerHTML = body_text.replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'}[c])) + cursor;
+          out.scrollTop = out.scrollHeight;
+        } else if (type === 'done') {
+          out.innerHTML = body_text.replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'}[c]));
+          $('#stream-metrics').innerHTML = [
+            tile('TTFT', valUnit(data.ttft_ms, 'ms'), true),
+            tile('wall', valUnit(data.wall_ms, 'ms')),
+            tile('tokens', `${data.prompt_tokens||'—'}<span class="unit">in / </span>${data.completion_tokens||'—'}<span class="unit">out</span>`),
+            tile('tok/s', valUnit(data.tokens_per_s, 'tok/s')),
+          ].join('');
+          toast(`Stream done — TTFT ${fmt.ms(data.ttft_ms)}`, 'ok');
+        } else if (type === 'error') {
+          toast('Stream error: '+data.error, 'err');
+        }
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') toast('Stream failed: '+e, 'err');
+  } finally {
+    $('#stream-stop').disabled = true;
+    $('#stream-run').disabled = false;
+    state.streamCtl = null;
+  }
+};
+$('#stream-stop').onclick = () => { state.streamCtl?.abort(); };
+
+// ----- boot -----
+(async () => {
+  await loadPresets();
+  await refreshHealth();
+})();
+</script>
+</body>
+</html>
