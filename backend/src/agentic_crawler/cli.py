@@ -16,6 +16,7 @@ from rich.table import Table
 
 from crawler.observability.logger import configure_logging
 
+from .agent_trace_publisher import install as install_agent_trace_publisher
 from .config import get_agentic_settings
 from .runner import run_seed
 from .scheduler import run_forever
@@ -31,6 +32,7 @@ def run(
 ) -> None:
     """One-shot run (manual trigger)."""
     configure_logging()
+    install_agent_trace_publisher()
     s = get_agentic_settings()
     seeds = load_seeds(s.seeds_yaml)
     if seed_name:
@@ -60,6 +62,7 @@ def run(
 def schedule() -> None:
     """Foreground 24/7 scheduler loop. Used as the docker container CMD."""
     configure_logging()
+    install_agent_trace_publisher()
     asyncio.run(run_forever())
 
 
@@ -78,26 +81,32 @@ def combined() -> None:
     for one global lock.
     """
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from .enrich_worker import run_workers_forever
+        from .product_backfill_worker import run_forever as product_run_forever
 
-        # Two long-running coroutines, single event loop. Cancellation of
-        # one shouldn't kill the other — wrap as separate tasks and gather
-        # with return_exceptions so we get a clear shutdown trace if either
-        # blows up.
+        # Three long-running coroutines, single event loop. Phase 5 added
+        # the product backfill worker to drain `agentic:product_backfill:queue`
+        # — populated by enrich_worker post-persist hook + manual seed CLI.
+        # All three share the same event loop / signal handlers so SIGTERM
+        # shuts everything down cleanly.
         listing_task = asyncio.create_task(run_forever())
         enrich_task = asyncio.create_task(run_workers_forever())
+        product_task = asyncio.create_task(product_run_forever(parallel=2))
         try:
             await asyncio.gather(
-                listing_task, enrich_task, return_exceptions=True
+                listing_task, enrich_task, product_task,
+                return_exceptions=True,
             )
         except BaseException:
-            for t in (listing_task, enrich_task):
+            for t in (listing_task, enrich_task, product_task):
                 if not t.done():
                     t.cancel()
             await asyncio.gather(
-                listing_task, enrich_task, return_exceptions=True
+                listing_task, enrich_task, product_task,
+                return_exceptions=True,
             )
             raise
 
@@ -108,6 +117,7 @@ def combined() -> None:
 def seeds() -> None:
     """Print the loaded seed list (useful to verify YAML before scheduling)."""
     configure_logging()
+    install_agent_trace_publisher()
     s = get_agentic_settings()
     items = load_seeds(s.seeds_yaml)
     table = Table(title=f"Agentic seeds — {s.seeds_yaml}")
@@ -131,6 +141,7 @@ def discover() -> None:
     AGENTIC_DISCOVERY_URL_SCORE_THRESHOLD if the output is too noisy / sparse.
     """
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from .discovery import discover_new_seeds
@@ -178,6 +189,7 @@ def enrich_worker_cmd() -> None:
     agents that search → visit → extract → persist via reporter.
     """
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from .enrich_worker import run_workers_forever
@@ -197,6 +209,7 @@ def enrich_enqueue_cmd(
 ) -> None:
     """Manual enqueue helper for smoke testing the queue end-to-end."""
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from .enrich_queue import EnrichTask, make_task_id, publish
@@ -228,12 +241,114 @@ def enrich_enqueue_cmd(
 def enrich_depth_cmd() -> None:
     """Show the current XLEN of `agentic:enrich:queue`."""
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from .enrich_queue import depth
 
         n = await depth()
         console.print(f"agentic:enrich:queue depth = [bold]{n}[/bold]")
+
+    asyncio.run(_run())
+
+
+# Phase 5 — Product catalog backfill subcommands.
+product_app = typer.Typer(help="Phase 5 product-catalog enrichment.")
+app.add_typer(product_app, name="product-backfill")
+
+
+@product_app.command("worker")
+def product_backfill_worker_cmd(
+    parallel: int = typer.Option(
+        4, "--parallel", help="Concurrent async tasks per process."
+    ),
+) -> None:
+    """Drain `agentic:product_backfill:queue`. Long-running."""
+    configure_logging()
+    install_agent_trace_publisher()
+
+    async def _run() -> None:
+        from .product_backfill_worker import run_forever
+
+        await run_forever(parallel=parallel)
+
+    asyncio.run(_run())
+
+
+@product_app.command("seed")
+def product_backfill_seed_cmd(
+    only_with_products: bool = typer.Option(
+        True, "--only-with-products/--all",
+        help="Only enqueue vendors with non-empty products list (recommended).",
+    ),
+    skip_already_enriched: bool = typer.Option(
+        True, "--skip-already-enriched/--reprocess",
+        help="Skip vendors that already have products_detailed populated.",
+    ),
+    limit: int = typer.Option(
+        0, help="Cap number of enqueued tasks (0 = no cap).",
+    ),
+) -> None:
+    """Scan vendors table → enqueue eligible vendor_ids to backfill queue."""
+    configure_logging()
+    install_agent_trace_publisher()
+
+    async def _run() -> None:
+        from sqlalchemy import select, func, text
+        from crawler.db.models import VendorORM
+        from crawler.db.session import get_session
+        from . import product_backfill_queue
+
+        async with get_session() as session:
+            stmt = select(VendorORM.vendor_id, VendorORM.company_name)
+            if only_with_products:
+                stmt = stmt.where(
+                    func.jsonb_array_length(VendorORM.products) > 0
+                )
+            if skip_already_enriched:
+                stmt = stmt.where(
+                    func.jsonb_array_length(VendorORM.products_detailed) == 0
+                )
+            stmt = stmt.order_by(VendorORM.last_enriched_at.desc())
+            if limit > 0:
+                stmt = stmt.limit(limit)
+            rows = (await session.execute(stmt)).all()
+
+        if not rows:
+            console.print("[yellow]no eligible vendors found[/yellow]")
+            return
+
+        n_pub = 0
+        n_skip = 0
+        for vendor_id, name in rows:
+            entry_id = await product_backfill_queue.publish_vendor(
+                vendor_id, source="backfill"
+            )
+            if entry_id:
+                n_pub += 1
+            else:
+                n_skip += 1
+        console.print(
+            f"[green]enqueued[/green] {n_pub} vendor(s); "
+            f"skipped {n_skip}; total scanned {len(rows)}"
+        )
+
+    asyncio.run(_run())
+
+
+@product_app.command("depth")
+def product_backfill_depth_cmd() -> None:
+    """Show XLEN of the product backfill queue."""
+    configure_logging()
+    install_agent_trace_publisher()
+
+    async def _run() -> None:
+        from .product_backfill_queue import queue_depth
+
+        n = await queue_depth()
+        console.print(
+            f"agentic:product_backfill:queue depth = [bold]{n}[/bold]"
+        )
 
     asyncio.run(_run())
 
@@ -263,6 +378,7 @@ def reset(
     you want a totally fresh start).
     """
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _run() -> None:
         from crawler.store.redis_queue import get_redis
@@ -348,6 +464,7 @@ def stop() -> None:
     a runaway seed and you want to stop without `docker compose kill`).
     """
     configure_logging()
+    install_agent_trace_publisher()
 
     async def _set_flag() -> None:
         from crawler.store.redis_queue import get_redis

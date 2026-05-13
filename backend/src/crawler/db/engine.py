@@ -48,6 +48,12 @@ _VENDOR_COLUMN_PATCHES: list[tuple[str, str]] = [
     ("industries_original", "JSONB DEFAULT '[]'::jsonb"),
     ("translation_method", "VARCHAR(60)"),
     ("translated_at", "TIMESTAMP WITH TIME ZONE"),
+    # Phase 5 — Product catalog + DOI scoring. Additive; legacy `products`
+    # column stays as input to product_enricher.
+    ("products_detailed", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+    ("overall_scope_score", "DOUBLE PRECISION NOT NULL DEFAULT 0.0"),
+    ("focus_summary", "TEXT"),
+    ("domain_of_interest", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
 ]
 
 _RUN_COLUMN_PATCHES: list[tuple[str, str]] = [

@@ -1,0 +1,34 @@
+PowerShell(Get-WinEvent -FilterHashtable @{LogName='System'; ID=1074,6005,6006,6008,41,1076; StartTime=(Get-Date).AddHours(-24)} -ErrorAction
+            SilentlyContinue | Select-Object TimeCreated,Id,ProviderName,@{n='Msg';e={$_.Message.Split("`n")[0]}} | Format-Table -AutoSize -Wrap |
+            Out-String -Width 200)
+  ⎿  TimeCreated             Id ProviderName Msg
+
+     -----------             -- ------------ ---
+
+     5/13/2026 2:17:35 AM  6005 EventLog     The Event log service was started.
+
+     5/13/2026 2:17:03 AM  6006 EventLog     The Event log service was stopped.
+
+     5/13/2026 2:16:57 AM  1074 User32       The process C:\Windows\servicing\TrustedInstaller.exe (DESKTOP-BR2DLT9) has initiated the restart of
+     computer DESKTOP-BR2DLT9 on behalf of user NT
+                                             AUTHORITY\SYSTEM for the following reason: Operating System: Upgrade (Planned)
+
+     5/13/2026 2:16:55 AM  6005 EventLog     The Event log service was started.
+
+     5/13/2026 2:16:27 AM  1074 User32       The process C:\Windows\servicing\TrustedInstaller.exe (DESKTOP-BR2DLT9) has initiated the restart of
+     computer DESKTOP-BR2DLT9 on behalf of user NT
+                                             AUTHORITY\SYSTEM for the following reason: Operating System: Upgrade (Planned)
+
+     5/13/2026 2:16:27 AM  6006 EventLog     The Event log service was stopped.
+
+     5/13/2026 2:15:28 AM  6005 EventLog     The Event log service was started.
+
+     5/13/2026 2:14:56 AM  6006 EventLog     The Event log service was stopped.
+
+     5/13/2026 2:14:15 AM  1074 User32       The process C:\Windows\uus\packages\preview\AMD64\MoUsoCoreWorker.exe (DESKTOP-BR2DLT9) has initiated
+      the restart of computer DESKTOP-BR2DLT9 on behalf of user
+                                             NT AUTHORITY\SYSTEM for the following reason: Operating System: Service pack (Planned)
+
+     5/12/2026 10:32:09 AM 6005 EventLog     The Event log service was started.
+
+     5/12/2026 10:31:38 AM 6006 EventLog     The Event log service was stopped.

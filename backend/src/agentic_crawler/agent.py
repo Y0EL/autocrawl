@@ -155,9 +155,18 @@ async def run_agent_for_seed(seed: AgenticSeed) -> AgentResult:
         f'{{"exhibitors": [{{"name": "...", "booth": "...", "url": "...", '
         f'"country": "..."}}]}}\n'
         f"booth/url/country optional → null if unknown.\n\n"
-        f"Bail (404 / captcha / paywall / 403 / image_only): emit done with "
+        f"Bail (404 / captcha / paywall / 403 / image_only / empty_page): emit done with "
         f'{{"exhibitors": [], "bail_reason": "<cat>"}}.\n'
-        f"Anti-loop: max 2 same Next-goal in a row, then switch tactic or done."
+        f"FORBIDDEN ACTIONS:\n"
+        f"  ✗ `navigate` to google.com or any external search engine — stay on the seed URL.\n"
+        f"  ✗ `click` on random index numbers — only click elements you can SEE in the DOM.\n\n"
+        f"BUDGET RULES:\n"
+        f"  1. `wait` action: max 1× per task. Browser-Use already auto-waits for page load. "
+        f"After 1× wait, if page still empty, try scroll then extract — don't wait again.\n"
+        f"  2. Same Next-goal 2× in a row → switch tactic or emit done.\n"
+        f"  3. extract_by_selector returns 0 with 3 different selectors → emit done with "
+        f'bail_reason="no_selector_match".\n'
+        f"  4. ABSOLUTE MAX: 18 steps total. After step 15, you MUST be in done-emission mode."
     )
 
     # Per-task recording dir (timestamped) so concurrent / sequential runs of
@@ -173,6 +182,13 @@ async def run_agent_for_seed(seed: AgenticSeed) -> AgentResult:
     agent_kwargs: dict[str, Any] = {
         "task": instruction,
         "llm": llm,
+        # CRITICAL: explicit initial navigation. Browser-Use's
+        # `directly_open_url=True` defaults to URL-extraction from the task
+        # text but it's unreliable — many runs end up on about:blank
+        # because the regex doesn't match our "Open: <url>" preamble. Pass
+        # the URL as an initial_action so the navigation happens BEFORE
+        # the agent loop starts and is guaranteed to fire.
+        "initial_actions": [{"navigate": {"url": seed.url, "new_tab": False}}],
         "use_vision": s.use_vision,
         # Lower than the default 10 — small vision models tend to bundle
         # stale navigate/click actions that all reference the previous DOM
@@ -439,6 +455,29 @@ def _parse_exhibitors_json(text: str) -> tuple[list[_Exhibitor], str | None]:
     try:
         payload = _extract_json(text)
     except Exception as e:  # noqa: BLE001
+        # Phase 4 fallback: scan plain-text done for bail keywords. Mistral
+        # often emits "Bail with reason: empty_page" instead of JSON. Salvage
+        # the bail_reason so the lesson archive uses the right category.
+        lower = text.lower()
+        for cat in ("empty_page", "no_selector_match", "wrong_domain",
+                    "404", "captcha", "image_only", "paywall", "403"):
+            if cat in lower:
+                _log.info(
+                    "agentic.parse_text_fallback",
+                    bail=cat, preview=text[:120],
+                )
+                return [], cat
+        if any(k in lower for k in (
+            "bail", "could not", "did not load", "still loading",
+            "inability to extract", "unable to load", "page is empty",
+            "remained empty", "site seems to be unavailable",
+        )):
+            _log.info(
+                "agentic.parse_text_fallback",
+                bail="empty_page", preview=text[:120],
+            )
+            return [], "empty_page"
+        # No salvageable signal — log original parse failure as warning.
         _log.warning("agentic.parse_failed", error=str(e), preview=text[:200])
         return [], None
     if not isinstance(payload, dict):

@@ -21,6 +21,11 @@ const tone = computed<'ok' | 'warn' | 'crit'>(() => {
   if (h.db === 'down') return 'crit'
   return 'warn'
 })
+const toneLabel = computed(() => {
+  if (tone.value === 'ok') return 'API · OK'
+  if (tone.value === 'crit') return 'API · DOWN'
+  return 'API · DEGRADED'
+})
 
 const stamp = computed(() => {
   const d = now.value
@@ -32,13 +37,16 @@ const stamp = computed(() => {
 </script>
 
 <template>
-  <footer class="rule-t bg-paper flex h-7 shrink-0 items-center justify-between px-5">
-    <span class="label-mono">Build 0.3 · Autocrawl · Edisi paper</span>
+  <footer class="rule-t bg-bg flex h-7 shrink-0 items-center justify-between px-5">
     <div class="flex items-center gap-4">
-      <span class="font-mono text-[0.625rem] tracking-[0.14em] text-ink-mute tabular-nums">{{ stamp }}</span>
+      <span class="label label-mute">Build 0.4 · Operator</span>
+      <span class="label label-mute">gsp.engineerteam</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="num-display text-[10.5px] text-ink-mute tabular-nums">{{ stamp }}</span>
       <span class="flex items-center gap-1.5">
-        <span class="dot" :class="`dot-${tone}`"></span>
-        <span class="label-mono">gsp.engineerteam</span>
+        <span class="dot dot-glow" :class="`dot-${tone}`"></span>
+        <span class="label" :class="tone === 'ok' ? 'text-ok' : tone === 'crit' ? 'text-crit' : 'text-warn'">{{ toneLabel }}</span>
       </span>
     </div>
   </footer>

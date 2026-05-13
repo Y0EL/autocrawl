@@ -13,6 +13,10 @@ Tier 4 — Niche public APIs (Reddit, HackerNews, GitHub, arXiv, OpenAlex,
          Semantic Scholar, Internet Archive, Wayback CDX).
 Tier 5 — OpenSERP container (Google, Bing, Yandex, Baidu via headless).
 Tier 6 — Region-specific engines (Baidu, Naver, Yahoo Japan) when query hints.
+Tier 7 — China-deep engines (Sogou+WeChat, Zhihu, Bilibili, Baidu Scholar).
+         Surfaces vendor pages Baidu under-indexes: 公众号 articles, Q&A
+         procurement threads, factory-tour videos, CNKI/Wanfang abstracts.
+         Fires when query has CN intent OR `force_china_deep=True`.
 
 Hasil tiap provider digabung lewat OrderedDict by `canonical_url(hit.url)`,
 preserving insertion order so the higher-tier hits win when there's a tie.
@@ -31,6 +35,8 @@ from ..url_utils import canonical_url
 from . import (
     arxiv,
     baidu,
+    baidu_xueshu,
+    bilibili,
     bing,
     brave,
     ddg,
@@ -44,10 +50,12 @@ from . import (
     reddit,
     searxng,
     semantic_scholar,
+    sogou,
     tavily,
     wayback_cdx,
     wikipedia,
     yahoo_japan,
+    zhihu,
 )
 from .base import SearchHit
 from .region import detect_regions
@@ -69,6 +77,7 @@ def _build_tasks(
     per_source_limit: int,
     engines: frozenset[str] | set[str] | None = None,
     force_regions: bool = False,
+    force_china_deep: bool = False,
 ) -> dict[str, Awaitable[Any]]:
     """Compose the dict of provider coroutines based on current settings.
 
@@ -80,6 +89,11 @@ def _build_tasks(
     schedule Baidu/Naver/Yahoo Japan unconditionally. Otherwise the legacy
     behavior — gate them on `detect_regions(query)` matching CJK/keywords —
     applies.
+
+    `force_china_deep`: when True, schedule Tier-7 (Sogou/WeChat, Zhihu,
+    Bilibili, Baidu Scholar) regardless of detected regions. Useful for
+    CCIPT-style topic seeds that may not contain Chinese characters in
+    the English query template but absolutely should hit CN-only sources.
     """
     settings = get_settings()
     tasks: dict[str, Awaitable[Any]] = {}
@@ -148,12 +162,36 @@ def _build_tasks(
     if (forced or "jp" in regions) and _allow("yahoo_japan"):
         tasks["yahoo_japan"] = yahoo_japan.search(query, max_results=per_source_limit)
 
-    if regions or forced:
+    # Tier 7 — China-deep. Fire when CN intent detected OR forced. The
+    # individual engine flags let operators kill a specific source if it
+    # starts captcha-blocking. Sogou's WeChat surface is gated by its own
+    # `sogou_include_weixin` flag (cuts network cost in half when off).
+    cn_deep_active = force_china_deep or "cn" in regions or forced
+    if cn_deep_active:
+        if settings.enable_sogou and _allow("sogou"):
+            tasks["sogou"] = sogou.search(
+                query,
+                max_results=per_source_limit,
+                include_weixin=settings.sogou_include_weixin,
+            )
+        if settings.enable_zhihu and _allow("zhihu"):
+            tasks["zhihu"] = zhihu.search(query, max_results=per_source_limit)
+        if settings.enable_bilibili and _allow("bilibili"):
+            tasks["bilibili"] = bilibili.search(
+                query, max_results=per_source_limit
+            )
+        if settings.enable_baidu_xueshu and _allow("baidu_xueshu"):
+            tasks["baidu_xueshu"] = baidu_xueshu.search(
+                query, max_results=per_source_limit
+            )
+
+    if regions or forced or cn_deep_active:
         _log.info(
             "multi_search.regions_detected",
             query=query[:60],
             regions=regions,
             forced=forced,
+            cn_deep=cn_deep_active,
             engines=list(tasks.keys()),
         )
 
@@ -190,9 +228,14 @@ async def search_all(
     per_source_limit: int = 15,
     engines: frozenset[str] | set[str] | None = None,
     force_regions: bool = False,
+    force_china_deep: bool = False,
 ) -> list[SearchHit]:
     tasks = _build_tasks(
-        query, per_source_limit, engines=engines, force_regions=force_regions
+        query,
+        per_source_limit,
+        engines=engines,
+        force_regions=force_regions,
+        force_china_deep=force_china_deep,
     )
     if not tasks:
         return []

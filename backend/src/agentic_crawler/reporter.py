@@ -17,7 +17,8 @@ from crawler.agents import reporter as reporter_agent
 from crawler.agents import resolver as resolver_agent
 from crawler.observability.logger import get_logger
 from crawler.observability.metrics import errors_total
-from crawler.schemas import ExhibitorRef, SourceProvenance
+from crawler.schemas import Expo, ExhibitorRef, ExpoSource, SourceProvenance
+from crawler.store.db_reporter import persist_expo_to_db
 
 from .agent import AgentResult, _Exhibitor
 
@@ -77,6 +78,20 @@ async def report_agent_result(seed_url: str, result: AgentResult) -> dict[str, i
     # a stable slug from the seed name so all exhibitors from the same agent
     # run share the same expo grouping.
     expo_id = result.expo_id or f"agentic-{_slug(result.seed_name)}"
+
+    # Ensure an ExpoORM record exists for this seed so the /api/expos endpoint
+    # and expo_vendors join work correctly.
+    try:
+        expo_obj = Expo(
+            expo_id=expo_id,
+            name=result.seed_name,
+            source=ExpoSource.AGENTIC,
+            aggregator_url=seed_url,  # type: ignore[arg-type]
+        )
+        await persist_expo_to_db(expo_obj, vendor_domains=[])
+    except Exception as _e:  # noqa: BLE001
+        _log.debug("agentic.expo_persist_failed", expo_id=expo_id, error=str(_e))
+
     refs = [_to_ref(e, expo_id, seed_url) for e in result.exhibitors]
 
     for ref in refs:

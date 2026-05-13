@@ -57,13 +57,13 @@ const option = computed(() => {
           color: subText,
           distance: 4,
           fontSize: 9,
-          fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+          fontFamily: '"Geist Mono Variable", "Geist Mono", monospace',
         },
         title: {
           offsetCenter: [0, '38%'],
           color: subText,
           fontSize: 11,
-          fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+          fontFamily: '"Geist Mono Variable", "Geist Mono", monospace',
           fontWeight: 500,
         },
         detail: {

@@ -6,10 +6,20 @@ import { toast } from 'vue-sonner'
 import { api } from '@/api/client'
 import type { Fusion, FusionSuggestion, VendorCandidate } from '@/api/types'
 import ConfirmCountdownModal from '@/components/ConfirmCountdownModal.vue'
-import HudPanel from '@/components/HudPanel.vue'
 import LabsFusionResult from '@/components/LabsFusionResult.vue'
 import LabsSuggestionCard from '@/components/LabsSuggestionCard.vue'
 import LabsVendorCard from '@/components/LabsVendorCard.vue'
+
+/**
+ * Labs — Fusion Composer, Bench archetype.
+ *
+ * Layout intent: split-canvas. LEFT 4-col sticky control rail with the
+ * cinema-scale selected count + AI suggest CTA + search + filter + hint
+ * + combine button. RIGHT 8-col composer canvas with suggestions, vendor
+ * grid, and the live fusion result. No more tab-then-sequential-cards.
+ *
+ * Real data only: /labs/candidates, /labs/suggestions, /labs/fusions.
+ */
 
 type Tab = 'create' | 'history'
 const activeTab = ref<Tab>('create')
@@ -47,7 +57,7 @@ async function fetchSuggestions() {
     if (res.suggestions.length === 0) {
       toast.info('Belum ada saran yang masuk akal. Coba lagi atau periksa data vendor.')
     }
-  } catch (e) {
+  } catch {
     toast.error('Gagal ngambil saran AI')
   } finally {
     suggestLoading.value = false
@@ -57,9 +67,6 @@ async function fetchSuggestions() {
 function useSuggestion(vendorIds: string[]) {
   selected.value = new Set(vendorIds)
   toast.success(`${vendorIds.length} vendor terpilih dari saran`)
-  if (typeof window !== 'undefined') {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
-  }
 }
 
 function toggleVendor(vendorId: string) {
@@ -76,9 +83,6 @@ const selectedVendors = computed(() =>
 )
 
 const missingEmail = computed(() => selectedVendors.value.filter((v) => !v.has_verified_email))
-// Email no longer gates Combine — operator can fuse vendors without
-// verified email. `missingEmail` still computed so the UI can warn,
-// but it doesn't block.
 const canCombine = computed(() => selected.value.size >= 2)
 
 const deepenBusy = ref<Set<string>>(new Set())
@@ -90,7 +94,7 @@ async function deepenVendor(vendorId: string) {
   try {
     await api.deepenVendor(vendorId)
     toast.success('Deepen request dikirim. Tunggu beberapa menit, refresh kandidat.')
-  } catch (e) {
+  } catch {
     toast.error('Gagal trigger deepen')
   } finally {
     const after = new Set(deepenBusy.value)
@@ -143,7 +147,7 @@ const historyDetail = ref<Fusion | null>(null)
 async function openHistoryDetail(fusionId: string) {
   try {
     historyDetail.value = await api.labs.detail(fusionId)
-  } catch (e) {
+  } catch {
     toast.error('Gagal load detail fusion')
   }
 }
@@ -151,133 +155,254 @@ async function openHistoryDetail(fusionId: string) {
 watch(activeTab, () => {
   if (activeTab.value === 'history') historyQuery.refetch()
 })
+
+const formatNum = (n: number | null | undefined) => {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—'
+  return new Intl.NumberFormat('id-ID').format(n)
+}
 </script>
 
 <template>
-  <div class="space-y-4 p-4">
-    <HudPanel code="LABS" accent>
-      <template #default>
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="font-mono text-2xl font-semibold text-base-900 dark:text-base-50">
-            Labs
+  <div class="labs-canvas">
+    <!-- ============================================================== -->
+    <!-- HERO STRIP — eyebrow + selected-count cinema numeral             -->
+    <!-- ============================================================== -->
+    <section class="labs-hero">
+      <div class="labs-hero__ticker fade-up" style="animation-delay: 0ms">
+        <span class="dot dot-amber dot-glow" />
+        <span class="atlas-hero__ticker-tag">FUSION COMPOSER</span>
+        <span class="atlas-hero__ticker-msg">
+          {{ candidates.length }} KANDIDAT AKTIF &middot;
+          {{ historyQuery.data.value?.items?.length ?? 0 }} FUSION HISTORIS &middot;
+          EKSPERIMEN AI &middot; HASIL TIDAK DETERMINISTIK
+        </span>
+        <span class="atlas-hero__ticker-stamp">LABS-01</span>
+      </div>
+
+      <div class="labs-hero__stencil fade-up" style="animation-delay: 40ms" aria-hidden="true">
+        AUTOCRAWL &middot; LABS &middot; FUSION COMPOSER &middot; EKSPERIMENTAL STUDIO
+      </div>
+
+      <div class="labs-hero__body fade-up" style="animation-delay: 100ms">
+        <div class="labs-hero__copy">
+          <span class="eyebrow eyebrow-accent">// 01 LABS</span>
+          <h1 class="display-hero mt-4">
+            Vendor <span class="text-amber">Fusion</span>.
           </h1>
-          <span class="hud-pill hud-pill-warn">
-            EXPERIMENTAL
+          <p class="text-ink-2 mt-3 max-w-xl">
+            Pilih dua atau lebih kandidat vendor, beri petunjuk produk, AI komposit jadi
+            satu nama dagang baru dengan draft email outreach. Eksperimen, jangan didewakan.
+          </p>
+        </div>
+
+        <!-- Tabs as pills, right-aligned -->
+        <div class="labs-hero__tabs">
+          <button
+            type="button"
+            class="labs-tab"
+            :class="{ 'labs-tab--active': activeTab === 'create' }"
+            @click="activeTab = 'create'"
+          >
+            Bikin Baru
+            <span class="num labs-tab__num">{{ selected.size }}</span>
+          </button>
+          <button
+            type="button"
+            class="labs-tab"
+            :class="{ 'labs-tab--active': activeTab === 'history' }"
+            @click="activeTab = 'history'"
+          >
+            Riwayat
+            <span class="num labs-tab__num">{{ historyQuery.data.value?.items?.length ?? 0 }}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- BENCH — sticky control rail + composer canvas                    -->
+    <!-- ============================================================== -->
+    <section v-if="activeTab === 'create'" class="labs-bench">
+      <!-- LEFT 4: control rail, sticky -->
+      <aside class="labs-rail">
+        <div class="bezel bezel-lg">
+          <div class="bezel-core p-6 flex flex-col gap-5">
+            <!-- Cinema selected count -->
+            <div>
+              <span class="eyebrow">// TERPILIH</span>
+              <div class="labs-rail__num num">
+                {{ selected.size === 0 ? '00' : formatNum(selected.size) }}
+              </div>
+              <span class="text-ink-mute text-xs">vendor di mejakerja</span>
+            </div>
+
+            <!-- AI suggestion CTA -->
+            <button
+              class="btn btn-amber btn-lg w-full justify-between"
+              type="button"
+              :disabled="suggestLoading"
+              @click="fetchSuggestions"
+            >
+              <span>{{ suggestLoading ? 'Mencari Saran…' : 'Cari Saran AI' }}</span>
+              <span class="btn-icon-nest">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M7 2v3M7 9v3M2 7h3M9 7h3M3.5 3.5l2 2M8.5 8.5l2 2M3.5 10.5l2-2M8.5 5.5l2-2" />
+                </svg>
+              </span>
+            </button>
+
+            <!-- Search + filter -->
+            <div class="space-y-3">
+              <span class="eyebrow">// FILTER KANDIDAT</span>
+              <input
+                v-model="search"
+                type="text"
+                placeholder="Cari nama vendor"
+                class="input"
+              >
+              <label class="flex items-center gap-2 cursor-pointer text-sm text-ink-2">
+                <input v-model="onlyWithEmail" type="checkbox" class="h-4 w-4 cursor-pointer accent-amber">
+                <span>Hanya yang punya email tervalidasi</span>
+              </label>
+            </div>
+
+            <!-- Hint + combine -->
+            <div class="space-y-3 pt-3 rule-t">
+              <span class="eyebrow">// PETUNJUK COMBINE</span>
+              <input
+                v-model="hint"
+                type="text"
+                placeholder="Contoh: layanan B2B sektor pertahanan"
+                class="input"
+              >
+              <span v-if="missingEmail.length" class="pill pill-warn">
+                {{ missingEmail.length }} tanpa email
+              </span>
+
+              <button
+                class="btn btn-amber btn-lg w-full justify-between"
+                type="button"
+                :disabled="!canCombine || combineLoading"
+                @click="openCombine"
+              >
+                <span>{{ combineLoading ? 'Generating…' : 'Combine ' + selected.size }}</span>
+                <span class="btn-icon-nest">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M3 7h8M7 3l4 4-4 4" />
+                  </svg>
+                </span>
+              </button>
+              <button
+                v-if="selected.size > 0"
+                class="btn btn-ghost btn-sm w-full"
+                type="button"
+                @click="selected = new Set()"
+              >
+                <span>Bersihkan Pilihan</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT 8: composer canvas -->
+      <div class="labs-canvas-right">
+        <!-- Fusion result spotlight when present -->
+        <div v-if="lastFusion" class="labs-spotlight">
+          <div class="bezel bezel-lg">
+            <div class="bezel-core p-6">
+              <div class="flex items-center justify-between mb-4">
+                <span class="eyebrow eyebrow-accent">
+                  <span class="live-dot" />
+                  HASIL FUSION BARU
+                </span>
+                <span class="num text-ink" style="font-size: 14px; font-weight: 600">
+                  {{ lastFusion.name }}
+                </span>
+              </div>
+              <LabsFusionResult :fusion="lastFusion" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Suggestions row -->
+        <div v-if="suggestions.length > 0" class="labs-suggestions">
+          <div class="flex items-center justify-between mb-3 px-2">
+            <span class="eyebrow">// SARAN AI</span>
+            <span class="text-ink-mute text-xs num">{{ suggestions.length }} saran</span>
+          </div>
+          <div class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+            <LabsSuggestionCard
+              v-for="(s, idx) in suggestions"
+              :key="idx"
+              :suggestion="s"
+              :vendor-map="candidateMap"
+              @use-suggestion="useSuggestion"
+            />
+          </div>
+        </div>
+
+        <!-- Vendor candidate grid -->
+        <div class="labs-grid">
+          <div class="flex items-center justify-between mb-3 px-2">
+            <span class="eyebrow">// KANDIDAT VENDOR &middot; {{ candidates.length }}</span>
+            <span class="num text-ink-mute text-xs">limit 100</span>
+          </div>
+          <div v-if="candidatesQuery.isLoading.value" class="py-16 text-center">
+            <span class="dot dot-amber pulse-soft mx-auto inline-block" />
+            <p class="label label-mute mt-3">Memuat kandidat…</p>
+          </div>
+          <div v-else-if="candidates.length === 0" class="py-16 text-center">
+            <span class="text-ink-mute" style="font-size: 48px">∅</span>
+            <p class="label label-mute mt-3">Belum ada kandidat</p>
+            <p class="text-xs text-ink-mute mt-1">Matikan filter "Punya email" atau enrich vendor dulu</p>
+          </div>
+          <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <LabsVendorCard
+              v-for="v in candidates"
+              :key="v.vendor_id"
+              :vendor="v"
+              :selected="selected.has(v.vendor_id)"
+              :busy-deepen="deepenBusy.has(v.vendor_id)"
+              @toggle="toggleVendor"
+              @deepen="deepenVendor"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!-- HISTORY tab                                                      -->
+    <!-- ============================================================== -->
+    <section v-else class="labs-history">
+      <article v-if="historyDetail" class="bezel bezel-lg">
+        <div class="bezel-core p-6">
+          <div class="flex items-center justify-between mb-4">
+            <span class="eyebrow eyebrow-accent">// DETAIL FUSION</span>
+            <button class="btn btn-ghost btn-sm" type="button" @click="historyDetail = null">
+              <span>Tutup</span>
+            </button>
+          </div>
+          <LabsFusionResult :fusion="historyDetail" />
+        </div>
+      </article>
+
+      <article v-else class="labs-history__list">
+        <div class="flex items-center justify-between mb-4 px-2">
+          <span class="eyebrow">// SEMUA FUSION HISTORIS</span>
+          <span class="num text-ink-mute text-xs">
+            {{ historyQuery.data.value?.items?.length ?? 0 }} record
           </span>
         </div>
-        <p class="mt-2 font-mono text-sm text-base-600 dark:text-base-300">
-          Eksperimen kombinasi vendor jadi produk baru. Hasilnya AI generate dan bisa salah,
-          terus eksperimen sampai dapat ide yang menarik.
-        </p>
-      </template>
-    </HudPanel>
-
-    <div class="flex gap-1 border-b border-base-200 dark:border-base-700">
-      <button
-        type="button"
-        :class="[
-          'px-4 py-2 font-mono text-2xs uppercase tracking-ops transition-colors',
-          activeTab === 'create'
-            ? 'border-b-2 border-accent-500 text-accent-700 dark:text-accent-400'
-            : 'text-base-500 hover:text-base-800 dark:text-base-400 dark:hover:text-base-100',
-        ]"
-        @click="activeTab = 'create'"
-      >
-        Bikin Baru
-      </button>
-      <button
-        type="button"
-        :class="[
-          'px-4 py-2 font-mono text-2xs uppercase tracking-ops transition-colors',
-          activeTab === 'history'
-            ? 'border-b-2 border-accent-500 text-accent-700 dark:text-accent-400'
-            : 'text-base-500 hover:text-base-800 dark:text-base-400 dark:hover:text-base-100',
-        ]"
-        @click="activeTab = 'history'"
-      >
-        Riwayat
-      </button>
-    </div>
-
-    <div v-if="activeTab === 'create'" class="space-y-4">
-      <HudPanel title="Saran AI" code="01">
-        <template #actions>
-          <button
-            class="hud-btn hud-btn-primary"
-            type="button"
-            :disabled="suggestLoading"
-            @click="fetchSuggestions"
-          >
-            {{ suggestLoading ? 'Generating..' : 'Cari Saran AI' }}
-          </button>
-        </template>
-        <div v-if="suggestions.length === 0" class="font-mono text-2xs text-base-500 dark:text-base-400">
-          Klik tombol di atas buat dapet 3-5 saran combo dari AI berdasarkan kandidat vendor punya email tervalidasi.
+        <div v-if="historyQuery.isLoading.value" class="py-16 text-center">
+          <span class="dot dot-amber pulse-soft mx-auto inline-block" />
+          <p class="label label-mute mt-3">Memuat…</p>
         </div>
-        <div v-else class="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          <LabsSuggestionCard
-            v-for="(s, idx) in suggestions"
-            :key="idx"
-            :suggestion="s"
-            :vendor-map="candidateMap"
-            @use-suggestion="useSuggestion"
-          />
-        </div>
-      </HudPanel>
-
-      <HudPanel title="Kandidat Vendor" code="02">
-        <template #actions>
-          <input
-            v-model="search"
-            type="text"
-            placeholder="cari nama vendor"
-            class="hud-input w-48"
-          >
-          <label class="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-ops text-base-500 dark:text-base-400">
-            <input v-model="onlyWithEmail" type="checkbox" class="accent-accent-500">
-            Punya email
-          </label>
-        </template>
-        <div v-if="candidatesQuery.isLoading.value" class="font-mono text-2xs text-base-500 dark:text-base-400">
-          Memuat..
-        </div>
-        <div v-else-if="candidates.length === 0" class="font-mono text-2xs text-base-500 dark:text-base-400">
-          Belum ada kandidat. Coba matiin filter "Punya email" atau enrich vendor dulu.
-        </div>
-        <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <LabsVendorCard
-            v-for="v in candidates"
-            :key="v.vendor_id"
-            :vendor="v"
-            :selected="selected.has(v.vendor_id)"
-            :busy-deepen="deepenBusy.has(v.vendor_id)"
-            @toggle="toggleVendor"
-            @deepen="deepenVendor"
-          />
-        </div>
-      </HudPanel>
-
-      <HudPanel v-if="lastFusion" title="Hasil Fusion Baru" code="!!">
-        <LabsFusionResult :fusion="lastFusion" />
-      </HudPanel>
-    </div>
-
-    <div v-else class="space-y-4">
-      <HudPanel v-if="historyDetail" title="Detail Fusion" code="DET">
-        <template #actions>
-          <button class="hud-btn hud-btn-ghost" type="button" @click="historyDetail = null">
-            Tutup
-          </button>
-        </template>
-        <LabsFusionResult :fusion="historyDetail" />
-      </HudPanel>
-
-      <HudPanel v-else title="Riwayat Fusion" code="HIS">
-        <div v-if="historyQuery.isLoading.value" class="font-mono text-2xs text-base-500 dark:text-base-400">
-          Memuat..
-        </div>
-        <div v-else-if="(historyQuery.data.value?.items?.length ?? 0) === 0" class="font-mono text-2xs text-base-500 dark:text-base-400">
-          Belum ada fusion. Bikin yang pertama di tab Bikin Baru.
+        <div v-else-if="(historyQuery.data.value?.items?.length ?? 0) === 0" class="py-16 text-center">
+          <span class="text-ink-mute" style="font-size: 48px">∅</span>
+          <p class="label label-mute mt-3">Belum ada fusion</p>
+          <p class="text-xs text-ink-mute mt-1">Bikin yang pertama di tab Bikin Baru</p>
         </div>
         <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <LabsFusionResult
@@ -288,43 +413,8 @@ watch(activeTab, () => {
             @open-detail="openHistoryDetail"
           />
         </div>
-      </HudPanel>
-    </div>
-
-    <div
-      v-if="activeTab === 'create' && selected.size > 0"
-      class="sticky bottom-4 z-30"
-    >
-      <div class="hud-panel border-accent-500 shadow-hud-strong">
-        <div class="hud-panel-body flex flex-wrap items-center gap-3">
-          <div class="flex flex-1 items-center gap-3">
-            <span class="font-mono text-sm text-base-900 dark:text-base-50">
-              {{ selected.size }} vendor terpilih
-            </span>
-            <span v-if="missingEmail.length" class="hud-pill hud-pill-warn">
-              {{ missingEmail.length }} TANPA EMAIL
-            </span>
-          </div>
-          <input
-            v-model="hint"
-            type="text"
-            placeholder="hint produk (opsional)"
-            class="hud-input w-64"
-          >
-          <button class="hud-btn hud-btn-ghost" type="button" @click="selected = new Set()">
-            Bersihin
-          </button>
-          <button
-            class="hud-btn hud-btn-primary"
-            type="button"
-            :disabled="!canCombine || combineLoading"
-            @click="openCombine"
-          >
-            {{ combineLoading ? 'Generating..' : 'Combine' }}
-          </button>
-        </div>
-      </div>
-    </div>
+      </article>
+    </section>
 
     <ConfirmCountdownModal
       v-model:open="showConfirm"
@@ -338,3 +428,169 @@ watch(activeTab, () => {
     />
   </div>
 </template>
+
+<style scoped>
+.labs-canvas { position: relative; min-height: 100dvh; }
+
+/* HERO */
+.labs-hero {
+  position: relative;
+  padding: 12px 28px 32px;
+  border-bottom: 1px solid rgb(var(--rule) / var(--rule-alpha));
+  overflow: hidden;
+}
+.labs-hero::before {
+  content: '';
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  background-image: var(--aurora-1), var(--aurora-2), var(--aurora-3);
+  background-repeat: no-repeat;
+  opacity: 0.55;
+  pointer-events: none;
+  animation: aurora-drift 22s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.labs-hero > * { position: relative; z-index: 1; }
+
+.labs-hero__ticker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 8px;
+  font-family: 'Geist Variable', 'Geist', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-2));
+}
+.labs-hero__ticker .atlas-hero__ticker-tag { color: rgb(var(--accent)); font-weight: 600; }
+.labs-hero__ticker .atlas-hero__ticker-msg {
+  flex: 1;
+  color: rgb(var(--ink));
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.labs-hero__ticker .atlas-hero__ticker-stamp { color: rgb(var(--ink-mute)); }
+
+.labs-hero__stencil {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  z-index: 2;
+  transform: rotate(-90deg);
+  transform-origin: left center;
+  white-space: nowrap;
+  font-family: 'Geist Variable', 'Geist', ui-monospace, monospace;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-mute) / 0.6);
+  pointer-events: none;
+}
+
+.labs-hero__body {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 8px 8px 0;
+  flex-wrap: wrap;
+}
+.labs-hero__copy { max-width: 720px; }
+
+.labs-hero__tabs {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.labs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 9999px;
+  border: 1px solid rgb(var(--rule) / var(--rule-strong-alpha));
+  background: rgb(var(--surface));
+  font-family: 'Geist Variable', 'Geist', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: rgb(var(--ink-2));
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: all var(--dur-240) var(--ease-out);
+}
+.labs-tab:hover { transform: translateY(-1px); box-shadow: var(--shadow-card-hover); }
+.labs-tab--active {
+  background: rgb(var(--ink));
+  border-color: rgb(var(--ink));
+  color: rgb(var(--surface));
+}
+.labs-tab__num {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  background: rgb(var(--ink) / 0.08);
+  color: inherit;
+  font-weight: 600;
+}
+.labs-tab--active .labs-tab__num { background: rgb(var(--surface) / 0.16); }
+
+/* BENCH */
+.labs-bench {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 24px;
+  padding: 24px 28px 56px;
+  align-items: start;
+}
+.labs-rail { position: sticky; top: 12px; }
+.labs-rail__num {
+  font-family: 'Geist Variable', 'Geist', sans-serif;
+  font-weight: 700;
+  font-size: clamp(3rem, 6vw, 5rem);
+  line-height: 1.0;
+  letter-spacing: -0.06em;
+  padding-block: 0.04em;
+  margin-top: 6px;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--accent-hot)) 0%,
+    rgb(var(--accent)) 55%,
+    rgb(var(--accent-glow, var(--accent))) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.labs-canvas-right {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+.labs-spotlight { min-width: 0; }
+.labs-suggestions { min-width: 0; }
+.labs-grid { min-width: 0; }
+
+/* HISTORY */
+.labs-history { padding: 24px 28px 56px; }
+.labs-history__list { padding: 8px 0; }
+
+@media (max-width: 1100px) {
+  .labs-hero { padding: 8px 16px 24px; }
+  .labs-hero__stencil { display: none; }
+  .labs-hero__body { flex-direction: column; align-items: flex-start; }
+  .labs-hero__tabs { width: 100%; }
+  .labs-bench {
+    grid-template-columns: 1fr;
+    padding: 16px 16px 36px;
+  }
+  .labs-rail { position: static; }
+  .labs-history { padding: 16px 16px 36px; }
+}
+</style>

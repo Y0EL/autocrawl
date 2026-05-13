@@ -91,6 +91,24 @@ export interface Vendor {
   industries_original?: string[]
   translation_method?: string | null
   translated_at?: string | null
+  // Phase 5 — Product catalog + DOI scoring
+  products_detailed?: Product[]
+  overall_scope_score?: number
+  focus_summary?: string | null
+  domain_of_interest?: string[]
+}
+
+export interface Product {
+  name: string
+  category?: string | null
+  summary?: string | null
+  scope_match_score: number
+  scope_match_reason?: string | null
+  matched_topics: string[]
+  pros: string[]
+  cons: string[]
+  source_url?: string | null
+  image_url?: string | null
 }
 
 export interface Expo {
@@ -198,6 +216,13 @@ export interface ExpoCountryStat {
   vendor_count: number
 }
 
+export interface CountryArc {
+  from_country: string
+  to_country: string
+  vendor_count: number
+  expo_count: number
+}
+
 export interface SourceTypeStat {
   type: string
   count: number
@@ -218,6 +243,50 @@ export interface HealthResponse {
   db: 'ok' | 'down'
   version: string
   uptime_seconds?: number
+  error?: string
+}
+
+export interface LlmQueueTier {
+  cap: number
+  inflight: number
+}
+export interface LlmQueueResponse {
+  enabled: boolean
+  acquire_timeout_s: number
+  tiers: { vision: LlmQueueTier; heavy: LlmQueueTier; light: LlmQueueTier; tiny: LlmQueueTier }
+  source: 'redis' | 'no_redis' | 'error'
+  error?: string
+}
+
+export interface OllamaModel {
+  name: string
+  model?: string
+  size?: number
+  size_vram?: number
+  expires_at?: string
+  digest?: string
+  details?: Record<string, unknown>
+}
+export interface OllamaPsResponse {
+  status: 'ok' | 'unavailable' | 'timeout' | 'error'
+  host: string | null
+  provider?: string
+  models: OllamaModel[]
+  loaded_count?: number
+  total_vram_bytes?: number
+  code?: number
+  error?: string
+}
+
+export interface AgenticSession {
+  host: string
+  started_at: string | null
+  lock_ttl_seconds: number | null
+}
+export interface AgenticSessionsResponse {
+  sessions: AgenticSession[]
+  stop_requested: boolean
+  source: 'redis' | 'no_redis' | 'error'
   error?: string
 }
 
@@ -278,6 +347,18 @@ export interface CrawlEvent {
 export interface OrchestratorEventsResponse {
   events: CrawlEvent[]
   next_since: string
+}
+
+export interface AgentTrace {
+  ts: string
+  kind: 'eval' | 'memory' | 'goal' | 'judge' | 'result' | 'action' | 'step_header' | 'other'
+  verdict: 'success' | 'fail' | null
+  agent: string
+  text: string
+}
+
+export interface AgentTracesResponse {
+  items: AgentTrace[]
 }
 
 export interface OrchestratorActiveRun {
@@ -431,6 +512,88 @@ export interface FusionSuggestion {
   tagline: string | null
   rationale: string
   confidence: number
+}
+
+// Vendor outreach: industrial-invitation email draft persisted per
+// (vendor_id, language) by the backend. Regenerating overwrites in-place.
+export type DraftLanguage = 'en' | 'id'
+
+export interface VendorEmailDraft {
+  id: number
+  vendor_id: string
+  language: DraftLanguage
+  subject: string
+  body: string
+  model_used: string | null
+  edited_manually: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface VendorEmailDraftLookup {
+  exists: boolean
+  vendor_id?: string
+  language?: DraftLanguage
+  // present when exists === true
+  id?: number
+  subject?: string
+  body?: string
+  model_used?: string | null
+  edited_manually?: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+// Vendor dossier content for PDF generation (frontend uses pdf-lib + mermaid).
+export interface VendorDossierSection {
+  heading: string
+  body: string
+}
+export interface VendorDossierProsCons {
+  pros: string[]
+  cons: string[]
+}
+export interface VendorGraphNode {
+  id: string
+  label: string
+  kind: 'root' | 'capability' | 'domain' | 'product'
+}
+export interface VendorGraphEdge {
+  source: string
+  target: string
+}
+export interface VendorBusinessGraph {
+  nodes: VendorGraphNode[]
+  edges: VendorGraphEdge[]
+}
+export interface VendorDossierContent {
+  title: string
+  subtitle: string
+  overview: string
+  sections: VendorDossierSection[]
+  pros_cons: VendorDossierProsCons
+  closing_note: string
+}
+export interface VendorDossierProduct {
+  name?: string
+  category?: string | null
+  scope_match_score?: number
+  matched_topics?: string[]
+}
+export interface VendorDossierMeta {
+  company_name?: string | null
+  domain?: string | null
+  country?: string | null
+  industries?: string[]
+  domain_of_interest?: string[]
+  overall_scope_score?: number | null
+  products_detailed?: VendorDossierProduct[]
+}
+export interface VendorDossierResponse {
+  vendor_id: string
+  language: DraftLanguage
+  content: VendorDossierContent
+  vendor_meta: VendorDossierMeta
 }
 
 export interface FusionEmailDraft {

@@ -40,7 +40,7 @@ const option = computed(() => {
       itemGap: 12,
       textStyle: {
         color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
-        fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+        fontFamily: '"Geist Mono Variable", "Geist Mono", monospace',
         fontSize: 10,
       },
     },
@@ -71,7 +71,7 @@ const option = computed(() => {
         symbolSize: 4,
         data: cum,
         lineStyle: { width: 2, color: tactical.info },
-        itemStyle: { color: tactical.info, borderColor: isDark.value ? '#0E1218' : '#FFFFFF', borderWidth: 1 },
+        itemStyle: { color: tactical.info, borderColor: isDark.value ? '#0A1525' : '#F4EFE6', borderWidth: 1 },
         areaStyle: {
           color: {
             type: 'linear',

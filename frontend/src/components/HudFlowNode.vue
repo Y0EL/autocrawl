@@ -21,18 +21,25 @@ const ledClass = computed(() => {
   return 'hud-led-muted'
 })
 
+// Tone returns a CSS var reference so colors swap with theme (paper vs ink).
 const tone = computed(() => {
-  if (props.data.failed > 0) return '#EF4444'
-  if (props.data.active > 0) return '#FFB800'
-  if (props.data.completed > 0) return '#22C55E'
-  return '#5C6878'
+  if (props.data.failed > 0) return 'rgb(var(--crit))'
+  if (props.data.active > 0) return 'rgb(var(--amber))'
+  if (props.data.completed > 0) return 'rgb(var(--ok))'
+  return 'rgb(var(--ink-mute))'
+})
+const toneAlpha = computed(() => {
+  if (props.data.failed > 0) return 'rgb(var(--crit) / 0.12)'
+  if (props.data.active > 0) return 'rgb(var(--amber) / 0.12)'
+  if (props.data.completed > 0) return 'rgb(var(--ok) / 0.12)'
+  return 'rgb(var(--ink-mute) / 0.12)'
 })
 </script>
 
 <template>
   <div
     class="hud-flow-node group relative flex w-[240px] flex-col rounded-md border bg-white shadow-sm transition-shadow dark:bg-base-900"
-    :style="{ borderColor: tone, boxShadow: `0 0 0 1px ${tone}20` }"
+    :style="{ borderColor: tone, boxShadow: `0 0 0 1px ${toneAlpha}` }"
   >
     <Handle type="target" :position="Position.Left" class="!h-2 !w-2 !border !border-base-400 !bg-base-100 dark:!bg-base-800" />
     <Handle type="source" :position="Position.Right" class="!h-2 !w-2 !border !border-base-400 !bg-base-100 dark:!bg-base-800" />
@@ -62,7 +69,7 @@ const tone = computed(() => {
           <span class="font-mono text-[9px] uppercase tracking-ops text-base-400 dark:text-base-500">AKTIF</span>
           <span
             class="hud-mono-num text-sm font-semibold"
-            :style="{ color: data.active > 0 ? '#FFB800' : '#8F99A8' }"
+            :style="{ color: data.active > 0 ? 'rgb(var(--amber))' : 'rgb(var(--ink-mute))' }"
           >
             {{ data.active }}
           </span>
@@ -71,7 +78,7 @@ const tone = computed(() => {
           <span class="font-mono text-[9px] uppercase tracking-ops text-base-400 dark:text-base-500">OK</span>
           <span
             class="hud-mono-num text-sm font-semibold"
-            :style="{ color: data.completed > 0 ? '#22C55E' : '#8F99A8' }"
+            :style="{ color: data.completed > 0 ? 'rgb(var(--ok))' : 'rgb(var(--ink-mute))' }"
           >
             {{ data.completed }}
           </span>
@@ -80,7 +87,7 @@ const tone = computed(() => {
           <span class="font-mono text-[9px] uppercase tracking-ops text-base-400 dark:text-base-500">GAGAL</span>
           <span
             class="hud-mono-num text-sm font-semibold"
-            :style="{ color: data.failed > 0 ? '#EF4444' : '#8F99A8' }"
+            :style="{ color: data.failed > 0 ? 'rgb(var(--crit))' : 'rgb(var(--ink-mute))' }"
           >
             {{ data.failed }}
           </span>

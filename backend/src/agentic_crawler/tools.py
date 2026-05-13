@@ -48,10 +48,98 @@ string forward-reference and the comparison fails with a confusing
 import asyncio
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from crawler.observability.logger import get_logger
 
 _log = get_logger(__name__)
+
+
+# Phase 4 PR 5 — code-side aggregator filter for `search_vendor`. The
+# previous prompt-only blocklist was advisory; Mistral routinely picked
+# alibaba/MIC/LinkedIn anyway. Hard-skip these in the tool itself so the
+# agent literally never sees them as candidates.
+_AGGREGATOR_TLDS = frozenset({
+    # B2B trade directories
+    "alibaba.com", "made-in-china.com", "indiamart.com", "tradeindia.com",
+    "globalsources.com", "kompass.com", "europages.com", "yp.com",
+    "yellowpages.com",
+    # Social / professional networks
+    "linkedin.com", "facebook.com", "twitter.com", "x.com",
+    "instagram.com", "youtube.com", "pinterest.com", "tiktok.com",
+    # Business intel / data brokers
+    "crunchbase.com", "bloomberg.com", "wikipedia.org", "glassdoor.com",
+    "zoominfo.com", "rocketreach.co", "owler.com", "dnb.com",
+    # Press-release distribution platforms — known einpresswire.com loop
+    # pattern (agent lands on a press service thinking it's the vendor's
+    # site, loops trying to find About/Contact). Hard-skip.
+    "einpresswire.com", "prnewswire.com", "businesswire.com",
+    "prweb.com", "newswire.com", "24-7pressrelease.com",
+    "prurgent.com", "pressreleaser.org", "openpr.com", "pressat.co.uk",
+    "issuewire.com", "send2press.com",
+    # News / blog aggregators that often outrank vendor's own site
+    "medium.com", "substack.com", "wordpress.com", "blogspot.com",
+    # Job boards / review sites (not vendor sites)
+    "indeed.com", "monster.com", "trustpilot.com", "yelp.com",
+    "g2.com", "capterra.com", "softwareadvice.com", "gartner.com",
+})
+
+
+def _registrable_domain(url: str) -> str:
+    """Return TLD+1 (e.g. 'foo.linkedin.com' → 'linkedin.com'). Best-effort
+    public-suffix split using the last two labels, which is correct for
+    .com/.org/.net and the aggregator TLDs we filter on. Multi-label TLDs
+    like .co.uk are out of scope — false-negative on those is acceptable."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:  # noqa: BLE001
+        return ""
+    if not host:
+        return ""
+    parts = host.split(".")
+    if len(parts) < 2:
+        return host
+    return ".".join(parts[-2:])
+
+
+def _is_aggregator(url: str) -> bool:
+    return _registrable_domain(url) in _AGGREGATOR_TLDS
+
+
+def _domain_quality_score(hit: Any, query_tokens: set[str]) -> float:
+    """Heuristic priors for ranking search hits. Higher is better.
+
+    +5 if URL path is root ('/') — vendor homepage, not /partners or /about.
+    +3 if title contains a query token (loose vendor-name match).
+    +2 if registrable domain contains a query token (single-word match).
+    -3 if URL path has 2+ segments (deep page, less likely homepage).
+    -10 if registrable domain is in aggregator list (defense-in-depth — we
+       already filter, but keep score so anything that slips through ranks
+       last).
+    """
+    score = 0.0
+    url = getattr(hit, "url", "") or ""
+    title = (getattr(hit, "title", "") or "").lower()
+    try:
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+    except Exception:  # noqa: BLE001
+        return -100.0
+    if path in ("", "/"):
+        score += 5
+    else:
+        depth = len([p for p in path.split("/") if p])
+        if depth >= 2:
+            score -= 3
+    if query_tokens:
+        if any(tok in title for tok in query_tokens):
+            score += 3
+        domain_root = _registrable_domain(url).split(".")[0]
+        if any(tok == domain_root or tok in domain_root for tok in query_tokens):
+            score += 2
+    if _is_aggregator(url):
+        score -= 10
+    return score
 
 
 def build_controller() -> Any:
@@ -83,6 +171,10 @@ def build_controller() -> Any:
                 _log.warning("agentic.tools_browser_session_unavailable")
                 return None
 
+    # `wait` is allowed but tightly scoped via prompt. Earlier we excluded it
+    # entirely, but that made some legit slow-loading sites fail at step 1.
+    # Mistral now has wait available for genuine "page is mid-load" cases,
+    # capped at 1 use per task by prompt rule.
     controller = Controller()
 
     @controller.action(
@@ -501,6 +593,19 @@ def build_controller() -> Any:
                     f"trailing tokens, or add a country/product hint."
                 ),
                 include_in_memory=True,
+            )
+        # Phase 4 PR 5 — code-side aggregator filter + heuristic ranking.
+        # Drop aggregator domains entirely (alibaba/MIC/linkedin/etc.) and
+        # rank surviving hits by domain quality (homepage > subpath, title-
+        # match > generic). Was prompt-only; Mistral ignored.
+        before = len(hits)
+        hits = [h for h in hits if not _is_aggregator(getattr(h, "url", "") or "")]
+        query_tokens = {t.lower() for t in query.split() if len(t) >= 3}
+        hits.sort(key=lambda h: _domain_quality_score(h, query_tokens), reverse=True)
+        if before != len(hits):
+            _log.info(
+                "agentic.tool.search_vendor.aggregator_filter",
+                query=query[:80], dropped=before - len(hits), kept=len(hits),
             )
         # Cap to 8 results; trim snippet so payload stays compact for the
         # vision-model context.

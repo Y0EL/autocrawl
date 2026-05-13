@@ -23,6 +23,17 @@ _KEYWORD_REGIONS: dict[str, list[str]] = {
     "shanghai": ["cn"],
     "zhuhai": ["cn"],
     "shenzhen": ["cn"],
+    "guangzhou": ["cn"],
+    "chongqing": ["cn"],
+    "tianjin": ["cn"],
+    "chengdu": ["cn"],
+    "hangzhou": ["cn"],
+    "xiamen": ["cn"],
+    "ccpit": ["cn"],          # China Council for the Promotion of International Trade
+    "ccipt": ["cn"],          # alt romanization, same body
+    "cpse": ["cn"],            # China Public Security Expo
+    "sinopec": ["cn"],
+    "norinco": ["cn"],
     "japan": ["jp"],
     "japanese": ["jp"],
     "tokyo": ["jp"],
@@ -43,6 +54,15 @@ def all_region_engines() -> list[str]:
     """Engine keys for the regional Tier-6 providers. Used by force-multilingual
     callers that want to bypass `detect_regions()` gating and fire all three."""
     return ["baidu", "naver", "yahoo_japan"]
+
+
+def all_china_deep_engines() -> list[str]:
+    """Engine keys for the Tier-7 China-deep providers (Sogou/WeChat,
+    Zhihu, Bilibili, Baidu Scholar). These hit corners of the Chinese
+    web that Baidu under-indexes — public-account articles, Q&A vendor
+    recs, factory-tour videos, academic case studies. Fire whenever a
+    query has CN intent OR force_china_deep is set."""
+    return ["sogou", "zhihu", "bilibili", "baidu_xueshu"]
 
 
 def detect_regions(query: str) -> list[str]:

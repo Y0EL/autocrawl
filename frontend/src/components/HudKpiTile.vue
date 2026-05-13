@@ -21,17 +21,17 @@ const props = withDefaults(
 const toneColor = computed(() => {
   switch (props.tone) {
     case 'accent':
-      return '#FFB800'
+      return 'rgb(var(--amber))'
     case 'ok':
-      return '#22C55E'
+      return 'rgb(var(--ok))'
     case 'warn':
-      return '#F59E0B'
+      return 'rgb(var(--warn))'
     case 'crit':
-      return '#EF4444'
+      return 'rgb(var(--crit))'
     case 'info':
-      return '#06B6D4'
+      return 'rgb(var(--cyan))'
     default:
-      return '#FFB800'
+      return 'rgb(var(--amber))'
   }
 })
 

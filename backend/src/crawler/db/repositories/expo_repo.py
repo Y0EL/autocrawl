@@ -44,6 +44,7 @@ def orm_to_dict(orm: ExpoORM, vendor_domains: list[str] | None = None) -> dict[s
         "discovered_at": orm.discovered_at.isoformat() if orm.discovered_at else None,
         "pdf_brochure_urls": orm.pdf_brochure_urls or [],
         "vendor_domains": vendor_domains or [],
+        "raw_metadata": orm.raw_metadata or {},
     }
 
 
@@ -153,6 +154,47 @@ async def country_breakdown(session: AsyncSession) -> list[dict[str, Any]]:
         )
     out.sort(key=lambda r: (-int(r["vendor_count"]), -int(r["expo_count"]), str(r["country"])))
     return out
+
+
+async def country_arcs(session: AsyncSession, *, limit: int = 80) -> list[dict[str, Any]]:
+    """Edges in the bipartite (expo-country -> vendor-country) graph.
+
+    Each row = one country pair: an expo somewhere joined to a vendor
+    whose registrar country differs from the expo's country. Used by
+    the overview map to draw arc connections that read as "the
+    crawler discovered vendor X in country B from expo Y in country A".
+
+    Self-loops (same country) are excluded — they add no visual signal.
+    Sorted by vendor count desc; top-N returned to keep the map legible.
+    """
+    stmt = (
+        select(
+            ExpoORM.country,
+            VendorORM.registrar_country,
+            func.count(func.distinct(VendorORM.domain)),
+            func.count(func.distinct(ExpoORM.expo_id)),
+        )
+        .join(ExpoVendorORM, ExpoVendorORM.expo_id == ExpoORM.expo_id)
+        .join(VendorORM, VendorORM.domain == ExpoVendorORM.vendor_domain)
+        .where(ExpoORM.country.isnot(None))
+        .where(ExpoORM.country != "")
+        .where(VendorORM.registrar_country.isnot(None))
+        .where(VendorORM.registrar_country != "")
+        .where(ExpoORM.country != VendorORM.registrar_country)
+        .group_by(ExpoORM.country, VendorORM.registrar_country)
+        .order_by(desc(func.count(func.distinct(VendorORM.domain))))
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        {
+            "from_country": r[0],
+            "to_country": r[1],
+            "vendor_count": int(r[2]),
+            "expo_count": int(r[3]),
+        }
+        for r in rows
+    ]
 
 
 async def country_detail(session: AsyncSession, *, country: str) -> dict[str, Any]:

@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-11T13:30:00Z",
+  "title": "Design System: Autocrawl",
+  "extensions": {
+    "colorMeta": {
+      "warm-ash-cream": {
+        "role": "neutral",
+        "displayName": "Warm Ash Cream",
+        "canonical": "oklch(95% 0.012 80)",
+        "tonalRamp": [
+          "oklch(20% 0.005 60)",
+          "oklch(35% 0.008 70)",
+          "oklch(50% 0.010 75)",
+          "oklch(62% 0.012 78)",
+          "oklch(74% 0.013 80)",
+          "oklch(84% 0.012 80)",
+          "oklch(91% 0.012 80)",
+          "oklch(97% 0.010 80)"
+        ]
+      },
+      "surface-paper": {
+        "role": "neutral",
+        "displayName": "Surface Paper",
+        "canonical": "oklch(97% 0.010 80)",
+        "tonalRamp": [
+          "oklch(20% 0.005 60)",
+          "oklch(35% 0.008 70)",
+          "oklch(50% 0.010 75)",
+          "oklch(62% 0.012 78)",
+          "oklch(74% 0.013 80)",
+          "oklch(84% 0.012 80)",
+          "oklch(91% 0.012 80)",
+          "oklch(97% 0.010 80)"
+        ]
+      },
+      "deep-field-ink": {
+        "role": "neutral",
+        "displayName": "Deep Field Ink",
+        "canonical": "oklch(15% 0.005 60)",
+        "tonalRamp": [
+          "oklch(15% 0.005 60)",
+          "oklch(22% 0.008 62)",
+          "oklch(30% 0.013 65)",
+          "oklch(42% 0.016 68)",
+          "oklch(54% 0.018 70)",
+          "oklch(68% 0.014 72)",
+          "oklch(82% 0.010 75)",
+          "oklch(93% 0.006 78)"
+        ]
+      },
+      "editorial-vermilion": {
+        "role": "primary",
+        "displayName": "Editorial Vermilion",
+        "canonical": "oklch(50% 0.158 32)",
+        "tonalRamp": [
+          "oklch(20% 0.090 30)",
+          "oklch(30% 0.120 31)",
+          "oklch(40% 0.145 32)",
+          "oklch(50% 0.158 32)",
+          "oklch(60% 0.158 32)",
+          "oklch(72% 0.140 35)",
+          "oklch(84% 0.090 40)",
+          "oklch(94% 0.040 50)"
+        ]
+      },
+      "gold-leaf": {
+        "role": "secondary",
+        "displayName": "Gold Leaf",
+        "canonical": "oklch(54% 0.105 84)",
+        "tonalRamp": [
+          "oklch(22% 0.055 80)",
+          "oklch(32% 0.075 82)",
+          "oklch(44% 0.095 83)",
+          "oklch(54% 0.105 84)",
+          "oklch(66% 0.110 82)",
+          "oklch(78% 0.100 82)",
+          "oklch(88% 0.075 80)",
+          "oklch(95% 0.035 80)"
+        ]
+      },
+      "deep-teal": {
+        "role": "tertiary",
+        "displayName": "Deep Teal",
+        "canonical": "oklch(28% 0.038 188)",
+        "tonalRamp": [
+          "oklch(15% 0.025 188)",
+          "oklch(22% 0.032 188)",
+          "oklch(28% 0.038 188)",
+          "oklch(38% 0.048 190)",
+          "oklch(50% 0.055 192)",
+          "oklch(64% 0.060 195)",
+          "oklch(80% 0.050 200)",
+          "oklch(94% 0.020 205)"
+        ]
+      },
+      "signal-ok": {
+        "role": "primary",
+        "displayName": "Signal OK",
+        "canonical": "oklch(38% 0.075 160)"
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page hero values and mode banner. Rare." },
+      "headline": { "displayName": "Headline", "purpose": "Page H1 across Atlas, Vendor, Labs." },
+      "title": { "displayName": "Title", "purpose": "Card titles, modal titles, section dividers." },
+      "body": { "displayName": "Body", "purpose": "Paragraph text and table cell prose. Cap 65 to 75 ch." },
+      "label": { "displayName": "Label Stencil", "purpose": "Section headers, column heads, button text, status pills. The operator-editorial voice." },
+      "num": { "displayName": "Numeric", "purpose": "Every number in a table or list. Tabular, slashed zero." },
+      "num-display": { "displayName": "Numeric Display", "purpose": "KPI tile values, donut center totals, headline numbers." }
+    },
+    "shadows": [
+      { "name": "card-resting", "value": "0 1px 0 rgb(20 18 16 / 0.04), 0 4px 12px rgb(20 18 16 / 0.06)", "purpose": "Card at rest on paper. So subtle it reads as 1px separation, not a lift." },
+      { "name": "card-hover", "value": "0 1px 0 rgb(20 18 16 / 0.06), 0 8px 20px rgb(20 18 16 / 0.10)", "purpose": "Card response to hover. The interactive announcement." },
+      { "name": "ring-accent", "value": "0 0 0 1px rgb(181 50 26 / 0.25)", "purpose": "Affirmation ring on card-glow and focus-visible states." }
+    ],
+    "motion": [
+      { "name": "ease-out-default", "value": "cubic-bezier(0.20, 0.60, 0.20, 1)", "purpose": "Standard ease-out for state transitions." },
+      { "name": "dur-fast", "value": "90ms", "purpose": "Micro state changes: hover, focus, pill fill." },
+      { "name": "dur-standard", "value": "160ms", "purpose": "Button transitions, input focus, dropdown open." },
+      { "name": "dur-medium", "value": "240ms", "purpose": "Card hover lift, modal scrim fade, panel slide." },
+      { "name": "dur-slow", "value": "360ms", "purpose": "Page transitions, theme toggle crossfade." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "2xl", "value": "1536px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "btn-primary",
+      "description": "Primary action. Vermilion outline, fills on hover, label stencil typography.",
+      "html": "<button class=\"ds-btn-primary\">START RUN</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 8px 14px; border: 1px solid #B5321A; background: transparent; color: #B5321A; border-radius: 3px; cursor: pointer; transition: background 160ms cubic-bezier(0.20, 0.60, 0.20, 1), color 160ms cubic-bezier(0.20, 0.60, 0.20, 1), box-shadow 160ms cubic-bezier(0.20, 0.60, 0.20, 1); } .ds-btn-primary:hover { background: #B5321A; color: #F4EFE6; box-shadow: 0 0 0 1px rgb(181 50 26 / 0.25); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(16 48 46 / 0.4); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "btn-ghost",
+      "description": "Tertiary action. No border at rest; cream sunk fill on hover.",
+      "html": "<button class=\"ds-btn-ghost\">CANCEL</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 8px 14px; border: 1px solid transparent; background: transparent; color: #3A342D; border-radius: 3px; cursor: pointer; transition: background 160ms cubic-bezier(0.20, 0.60, 0.20, 1), color 160ms cubic-bezier(0.20, 0.60, 0.20, 1); } .ds-btn-ghost:hover { background: #EBE4D7; color: #141210; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat at rest, lifts on hover. 1px hairline border instead of strong resting shadow.",
+      "html": "<article class=\"ds-card\"><header class=\"ds-card-head\">VENDOR OVERVIEW</header><div class=\"ds-card-body\">Card body content.</div></article>",
+      "css": ".ds-card { background: #FAF6EE; border: 1px solid rgb(20 18 16 / 0.12); border-radius: 8px; box-shadow: 0 1px 0 rgb(20 18 16 / 0.04), 0 4px 12px rgb(20 18 16 / 0.06); transition: box-shadow 240ms cubic-bezier(0.20, 0.60, 0.20, 1); } .ds-card:hover { box-shadow: 0 1px 0 rgb(20 18 16 / 0.06), 0 8px 20px rgb(20 18 16 / 0.10); } .ds-card-head { font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #3A342D; padding: 14px 20px; border-bottom: 1px solid rgb(20 18 16 / 0.06); } .ds-card-body { padding: 16px 20px; color: #141210; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-size: 15px; line-height: 1.5; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Sunken input well, not raised. Vermilion focus ring at 60% alpha.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Search vendor\" />",
+      "css": ".ds-input { width: 100%; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-size: 13.5px; padding: 8px 12px; background: #EBE4D7; border: 1px solid rgb(20 18 16 / 0.12); color: #141210; border-radius: 6px; outline: none; transition: border-color 160ms cubic-bezier(0.20, 0.60, 0.20, 1), box-shadow 160ms cubic-bezier(0.20, 0.60, 0.20, 1); } .ds-input::placeholder { color: #7A7167; } .ds-input:focus { border-color: rgb(181 50 26 / 0.6); box-shadow: 0 0 0 2px rgb(181 50 26 / 0.18); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill-amber",
+      "description": "True pill (999px radius), 1px border, label stencil typography. Used for status and category tags.",
+      "html": "<span class=\"ds-pill ds-pill-amber\"><span class=\"ds-pill-dot\"></span>ACTIVE</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 8px; border: 1px solid rgb(20 18 16 / 0.24); color: #3A342D; border-radius: 999px; background: transparent; } .ds-pill-amber { border-color: rgb(181 50 26 / 0.5); color: #B5321A; } .ds-pill-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }"
+    },
+    {
+      "name": "Ledger Row",
+      "kind": "card",
+      "refersTo": "ledger-row",
+      "description": "Tabular row, zero-border, hairline separator, hover sunk fill. The page-of-record style.",
+      "html": "<table class=\"ds-ledger\"><thead><tr><th>VENDOR</th><th>DOMAIN</th><th class=\"ds-ledger-num\">SCORE</th></tr></thead><tbody><tr><td>Lockheed Martin</td><td>lockheedmartin.com</td><td class=\"ds-ledger-num\">0.984</td></tr><tr><td>BAE Systems</td><td>baesystems.com</td><td class=\"ds-ledger-num\">0.962</td></tr></tbody></table>",
+      "css": ".ds-ledger { width: 100%; border-collapse: collapse; font-size: 13px; color: #141210; font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; } .ds-ledger thead th { text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #7A7167; padding: 10px 14px; border-bottom: 1px solid rgb(20 18 16 / 0.24); background: transparent; } .ds-ledger tbody td { padding: 10px 14px; border-bottom: 1px solid rgb(20 18 16 / 0.06); vertical-align: middle; } .ds-ledger tbody tr:hover td { background: #EBE4D7; } .ds-ledger-num { font-family: 'JetBrains Mono Variable', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum', 'zero', 'ss19'; letter-spacing: -0.01em; text-align: right; }"
+    },
+    {
+      "name": "KPI Tile",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Number plus label. JetBrains Mono numeric display, Hanken stencil label. No supporting micro-stats; this is not the SaaS hero-metric template.",
+      "html": "<article class=\"ds-kpi\"><div class=\"ds-kpi-label\">VENDORS RESOLVED</div><div class=\"ds-kpi-value\">1,847</div></article>",
+      "css": ".ds-kpi { background: #FAF6EE; border: 1px solid rgb(20 18 16 / 0.12); border-radius: 8px; padding: 16px 20px; box-shadow: 0 1px 0 rgb(20 18 16 / 0.04), 0 4px 12px rgb(20 18 16 / 0.06); } .ds-kpi-label { font-family: 'Hanken Grotesk Variable', system-ui, sans-serif; font-weight: 600; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #7A7167; margin-bottom: 8px; } .ds-kpi-value { font-family: 'JetBrains Mono Variable', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum', 'zero', 'ss19'; font-size: 30px; font-weight: 500; letter-spacing: -0.025em; color: #141210; line-height: 1.1; }"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "nav",
+      "description": "Icon-only rail, vermilion left border on active route. Active border is 1px (per Side-Stripe ban), not a stripe.",
+      "html": "<a class=\"ds-nav-item ds-nav-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h18M3 6h18M3 18h18\"/></svg></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; color: #7A7167; border-left: 1px solid transparent; transition: color 160ms cubic-bezier(0.20, 0.60, 0.20, 1), background 160ms cubic-bezier(0.20, 0.60, 0.20, 1), border-color 160ms cubic-bezier(0.20, 0.60, 0.20, 1); } .ds-nav-item:hover { color: #3A342D; background: #EBE4D7; } .ds-nav-active { color: #B5321A; border-left-color: #B5321A; background: #FAF6EE; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Dossier Console",
+    "overview": "Autocrawl is an operator surface that reads like an intelligence dossier and runs like a Linear-tier product tool. Every screen is a page of a long-running brief: tabular numerics on a calm cream ground, label stencils tracked uppercase, vermilion accent appearing where it counts and nowhere else. The operator is in a session of hours, not minutes; the surface must hold density without burning the eyes, must convey provenance without ornament, must keep the tool serving the task. The system explicitly rejects the bland Notion/Linear-default neutral aesthetic and the operator-cyber HUD aesthetic. Between those two cliffs, Autocrawl sits on paper editorial ground.",
+    "keyCharacteristics": [
+      "Refined, precise, confident — three words that govern every detail.",
+      "Two themes, one identity: Paper (default) and Ink (operator-night) using the same token names with swapped values.",
+      "Flat-by-default surfaces; shadow appears only as response to state.",
+      "Hanken Grotesk for UI and headlines, JetBrains Mono for every number. Two type families, no third.",
+      "150 to 250 millisecond ease-out transitions. No page-load choreography, no decorative pulse."
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "The primary accent (vermilion on paper, amber on dark) is used on ≤10% of any given screen. Its rarity is its meaning.", "section": "colors" },
+      { "name": "The No-Pure-Black Rule", "body": "No #000 and no #fff. Every neutral carries a brand-hue tint.", "section": "colors" },
+      { "name": "The Status-By-Hue-And-Symbol Rule", "body": "Status is never conveyed by color alone. Every status indicator pairs a color token with an icon or text label.", "section": "colors" },
+      { "name": "The Two-Family Rule", "body": "Hanken for UI, JetBrains for numerics. No third font, ever.", "section": "typography" },
+      { "name": "The Tabular Numerics Rule", "body": "Every number consumed by the eye-as-data uses JetBrains Mono with tabular-nums and slashed zero.", "section": "typography" },
+      { "name": "The Label-Stencil Rule", "body": "Section headers, column heads, button text, status pills, KPI labels all use the Label style (10.5px, 600 weight, 0.12em tracking, uppercase).", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. Shadows appear only as responses to state.", "section": "elevation" },
+      { "name": "The No-Glass Rule", "body": "backdrop-filter blur as decoration is forbidden.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the primary accent under 10% of any given screen.",
+      "Do tint every neutral toward the brand hue. Warm Ash Cream is oklch(95% 0.012 80) not #fff.",
+      "Do use Hanken Grotesk for UI and JetBrains Mono for numerics.",
+      "Do use the Label stencil for section headers, column heads, button text, status pills.",
+      "Do keep cards flat at rest; lift on hover.",
+      "Do pair every status color with an icon or text label.",
+      "Do respect prefers-reduced-motion."
+    ],
+    "donts": [
+      "Don't use side-stripe borders. border-left or border-right greater than 1 pixel as a colored accent is forbidden.",
+      "Don't use gradient text via background-clip text.",
+      "Don't use backdrop-filter blur as decoration.",
+      "Don't ship the hero-metric template.",
+      "Don't build identical card grids.",
+      "Don't default to modal as first thought.",
+      "Don't use #000 or #fff.",
+      "Don't use Roboto, Inter, or any third font.",
+      "Don't use Material Design patterns.",
+      "Don't use SaaS purple-to-pink gradients, glow text, or glassmorphic card stacks.",
+      "Don't use HUD cyberpunk neon glow, scanline overlays, or bracket UI decoration.",
+      "Don't use em-dash or en-dash or semicolon in user-facing copy and ops reports."
+    ]
+  }
+}

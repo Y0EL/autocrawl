@@ -21,17 +21,18 @@ services:
       DATA_DIR: /app/data
       LOG_DIR: /app/logs
       CONFIG_DIR: /app/config
-      TRANSLATION_ENABLED: "true"
-      TRANSLATION_PROVIDER: nllb
-      NLLB_MODEL_PATH: /opt/nllb_ct2
-      NLLB_TOKENIZER_PATH: /opt/nllb_ct2
+      # Translation disabled at deterministic-pipeline level. Agentic
+      # crawler does its own EN→ID via Mistral (agentic_crawler.translator).
+      # NLLB infra removed 2026-05-08.
+      TRANSLATION_ENABLED: "false"
+      TRANSLATION_PROVIDER: none
       TARGET_LANGUAGE: id
       ENABLE_OPENSERP: "true"
       OPENSERP_URL: http://openserp:7000
       # Yandex paling lenient (gak captcha-heavy), bing+google tambahan untuk
       # coverage. Baidu skip — wajib residential proxy biar gak kena captcha
       # tiap query, ga ada gunanya tanpa proxy infra.
-      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-"yandex,bing,google"}
+      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-yandex,bing,google}
       OPENSERP_MAX_RETRIES: "1"
       ENABLE_SEARXNG: "true"
       SEARXNG_URL: http://searxng:8080
@@ -119,9 +120,6 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
-      # NLLB model loaded from host (run `docker compose --profile setup run --rm nllb-setup` once).
-      # Read-only here — only the setup service writes to it.
-      - ./nllb_models/nllb_ct2:/opt/nllb_ct2:ro
     networks: [crawl_net]
     ports:
       - "8080:8080"
@@ -137,18 +135,19 @@ services:
       DATA_DIR: /app/data
       LOG_DIR: /app/logs
       CONFIG_DIR: /app/config
-      API_CORS_ORIGINS: http://localhost:5173,http://localhost:8090
-      TRANSLATION_ENABLED: "true"
-      TRANSLATION_PROVIDER: nllb
-      NLLB_MODEL_PATH: /opt/nllb_ct2
-      NLLB_TOKENIZER_PATH: /opt/nllb_ct2
+      API_CORS_ORIGINS: http://localhost:5173,http://localhost:18090,http://gsp:8090,http://gsp.tailba2cde.ts.net:8090
+      # Translation disabled at deterministic-pipeline level. Agentic
+      # crawler does its own EN→ID via Mistral (agentic_crawler.translator).
+      # NLLB infra removed 2026-05-08.
+      TRANSLATION_ENABLED: "false"
+      TRANSLATION_PROVIDER: none
       TARGET_LANGUAGE: id
       ENABLE_OPENSERP: "true"
       OPENSERP_URL: http://openserp:7000
       # Yandex paling lenient (gak captcha-heavy), bing+google tambahan untuk
       # coverage. Baidu skip — wajib residential proxy biar gak kena captcha
       # tiap query, ga ada gunanya tanpa proxy infra.
-      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-"yandex,bing,google"}
+      OPENSERP_ENGINES: ${OPENSERP_ENGINES:-yandex,bing,google}
       OPENSERP_MAX_RETRIES: "1"
       ENABLE_SEARXNG: "true"
       SEARXNG_URL: http://searxng:8080
@@ -215,35 +214,20 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config:ro
-      - ./nllb_models/nllb_ct2:/opt/nllb_ct2:ro
     command:
       ["uvicorn", "crawler.api:app", "--host", "0.0.0.0", "--port", "8081", "--proxy-headers"]
     networks: [crawl_net]
     ports:
-      - "8081:8081"
+      - "127.0.0.1:18081:8081"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5
 
-  # One-shot NLLB-200 model downloader. Runs only when explicitly invoked:
-  #   docker compose --profile setup run --rm nllb-setup
-  # Reuses the crawler image (which already has ctranslate2 + transformers +
-  # huggingface-hub installed). Downloads + converts to ./nllb_models/ on host,
-  # which is then mounted read-only into crawler & api at /opt/nllb_ct2.
-  # After this completes once, the model PERSISTS across image rebuilds, prunes,
-  # and Docker cache wipes — no more re-downloading 1.34GB on every build.
-  nllb-setup:
-    image: autocrawl/crawler:latest
-    profiles: ["setup"]
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
-    volumes:
-      - ./nllb_models:/models
-    networks: [crawl_net]
-    command: ["python", "/app/scripts/setup-nllb.py"]
+  # NLLB-setup service removed 2026-05-08. Agentic translator (Mistral via
+  # Ollama) replaced NLLB-200 entirely; deterministic translator path is
+  # disabled via TRANSLATION_PROVIDER=none.
 
   # AI-driven sibling crawler. Independent process, same data sink as `crawler`.
   # Vision-capable LLM (qwen3.6:27b on the LAN Ollama) drives a real Chromium
@@ -362,7 +346,7 @@ services:
     networks: [crawl_net]
     ports:
       # noVNC for twin A — open http://localhost:7900/vnc.html
-      - "7900:7900"
+      - "127.0.0.1:7900:7900"
     shm_size: 2gb
     command: ["agentic-crawl", "combined"]
 
@@ -436,7 +420,7 @@ services:
     networks: [crawl_net]
     ports:
       # noVNC for twin B — open http://localhost:7901/vnc.html
-      - "7901:7900"
+      - "127.0.0.1:7901:7900"
     shm_size: 2gb
     command: ["agentic-crawl", "combined"]
 
@@ -472,7 +456,10 @@ services:
       - api
     networks: [crawl_net]
     ports:
-      - "8090:80"
+      - "127.0.0.1:18090:80"
+      - "127.0.0.1:18443:443"
+    volumes:
+      - ./frontend/certs:/etc/nginx/certs:ro
 
   redis:
     image: redis:7-alpine
@@ -587,7 +574,7 @@ services:
       - prom_data:/prometheus
     networks: [crawl_net]
     ports:
-      - "9090:9090"
+      - "127.0.0.1:19090:9090"
 
   grafana:
     image: grafana/grafana:latest
@@ -604,7 +591,9 @@ services:
       - ./backend/ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [crawl_net]
     ports:
-      - "3000:3000"
+      # Host port pindah ke 3030 karena 3000 sering bentrok dengan Plane,
+      # Next.js dev server, atau Node app lain. Container internal tetap 3000.
+      - "127.0.0.1:13030:3000"
     depends_on:
       - prometheus
 

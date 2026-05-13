@@ -52,6 +52,12 @@ _VALID_CATEGORIES = {
     "parse_failed",
     "timeout",
     "empty_result",
+    # Phase 4 bail reasons
+    "empty_page",          # SPA didn't load / page literally empty
+    "no_selector_match",   # extract_by_selector tried 3 selectors, all 0 hits
+    "wrong_domain",        # agent landed on aggregator/press-release/unrelated site
+    "no_domain",           # search_vendor returned 0 candidates
+    "formality",           # agent visited but data was generic landing page
 }
 
 
@@ -79,6 +85,18 @@ def categorize_failure(error_or_bail: str | None) -> str:
         return "timeout"
     if "image_only" in s or "image only" in s or "no list" in s:
         return "image_only"
+    # Phase 4 bail patterns — match BEFORE the generic "empty" catch-all so
+    # `empty_page` doesn't get demoted to `empty_result`.
+    if "empty_page" in s or "did not load" in s or "page is empty" in s or "still loading" in s:
+        return "empty_page"
+    if "no_selector_match" in s or "selector" in s and "no match" in s:
+        return "no_selector_match"
+    if "wrong_domain" in s or "wrong domain" in s or "not the vendor" in s:
+        return "wrong_domain"
+    if "no_domain" in s or "no candidate" in s or "no domain" in s:
+        return "no_domain"
+    if "formality" in s:
+        return "formality"
     if "extracted_zero_vendors" in s or "empty" in s:
         return "empty_result"
     if "parse" in s or "json" in s or "decode" in s:

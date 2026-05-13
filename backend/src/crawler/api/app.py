@@ -20,6 +20,7 @@ from .routes import (
     pdfs,
     runs,
     settings as settings_routes,
+    system,
     vendors,
 )
 
@@ -31,6 +32,17 @@ async def lifespan(_app: FastAPI):
     import asyncio
 
     configure_logging()
+
+    # Tail the Redis stream populated by agentic_crawler containers
+    # (agentic-a, agentic-b) — captures browser_use.Agent reasoning
+    # logs from those separate processes and mirrors them locally for
+    # the frontend Live Monitor → Agent Trace panel.
+    try:
+        from ..tools.agent_trace_buffer import install as install_agent_trace
+        install_agent_trace()
+    except Exception as e:  # noqa: BLE001
+        _log.warning("api.agent_trace_install_failed", error=str(e))
+
     settings = get_settings()
     if settings.persist_to_db:
         last_err: str | None = None
@@ -59,6 +71,12 @@ async def lifespan(_app: FastAPI):
         _log.warning("api.scope_cache_boot_failed", error=str(e))
 
     yield
+
+    try:
+        from ..tools.agent_trace_buffer import shutdown as shutdown_agent_trace
+        shutdown_agent_trace()
+    except Exception as e:  # noqa: BLE001
+        _log.warning("api.agent_trace_shutdown_failed", error=str(e))
 
     try:
         from ..tools.scope_cache import stop_background_task
@@ -104,6 +122,7 @@ def create_app() -> FastAPI:
     application.include_router(exhibitor_refs.router, prefix="/api")
     application.include_router(config_scope.router, prefix="/api")
     application.include_router(labs.router, prefix="/api")
+    application.include_router(system.router, prefix="/api")
 
     fusions_dir = settings.data_dir / "fusions"
     fusions_dir.mkdir(parents=True, exist_ok=True)

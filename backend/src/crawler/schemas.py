@@ -41,6 +41,7 @@ class ExpoSource(str, Enum):
     DDG = "duckduckgo"
     WIKIPEDIA = "wikipedia"
     GOOGLE_NEWS = "google_news"
+    AGENTIC = "agentic"
     UNKNOWN = "unknown"
 
 
@@ -166,6 +167,26 @@ class FundingInfo(BaseModel):
     investors: list[str] = Field(default_factory=list)
 
 
+class Product(BaseModel):
+    """Phase 5 — One product/service offered by a vendor, scored against the
+    operator's domain of interest (`config/seed_topics.yaml`).
+
+    Populated by `agentic_crawler.product_enricher` (live path on every
+    enriched vendor) or by the backfill worker for historical rows. Same
+    shape persists to JSONB column `vendors.products_detailed`."""
+
+    name: str
+    category: str | None = None
+    summary: str | None = None
+    scope_match_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    scope_match_reason: str | None = None
+    matched_topics: list[str] = Field(default_factory=list)
+    pros: list[str] = Field(default_factory=list, max_length=4)
+    cons: list[str] = Field(default_factory=list, max_length=4)
+    source_url: str | None = None
+    image_url: str | None = None
+
+
 VendorStatus = Literal[
     "enriched",
     "unresolved",
@@ -231,6 +252,15 @@ class Vendor(BaseModel):
     industries_original: list[str] = Field(default_factory=list)
     translation_method: str | None = None
     translated_at: datetime | None = None
+
+    # Phase 5 — Product catalog + Domain-of-Interest scoring. Populated by
+    # `agentic_crawler.product_enricher`. Legacy `products: list[str]` stays
+    # as input; `products_detailed` is the enriched output. Frontend reads
+    # detailed if non-empty, falls back to legacy.
+    products_detailed: list[Product] = Field(default_factory=list)
+    overall_scope_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    focus_summary: str | None = None
+    domain_of_interest: list[str] = Field(default_factory=list)
 
 
 class RunSummary(BaseModel):

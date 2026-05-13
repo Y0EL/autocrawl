@@ -84,38 +84,92 @@ async def translate_vendor_inplace(vendor: Any) -> bool:
 
     if target != "id":
         return False
-    if getattr(vendor, "language_code", "en") == "id":
-        return False  # already translated
 
+    already_translated = getattr(vendor, "language_code", "en") == "id"
     changed = False
 
-    if vendor.description:
-        original = vendor.description
-        translated = await _translate_one(original)
-        if translated and translated != original:
-            vendor.description_original = original
-            vendor.description = translated
+    # Legacy fields — only translate if not already done. After Phase 5,
+    # translator can be re-invoked (backfill worker) and we still want to
+    # process products_detailed even when description/tagline are already
+    # in ID from the earlier pass.
+    if not already_translated:
+        if vendor.description:
+            original = vendor.description
+            translated = await _translate_one(original)
+            if translated and translated != original:
+                vendor.description_original = original
+                vendor.description = translated
+                changed = True
+
+        if vendor.tagline:
+            original = vendor.tagline
+            translated = await _translate_one(original)
+            if translated and translated != original:
+                vendor.tagline_original = original
+                vendor.tagline = translated
+                changed = True
+
+        # Products: short keywords, batch as one to save round trips.
+        if vendor.products:
+            joined = " | ".join(vendor.products[:8])
+            translated_joined = await _translate_one(joined, max_chars=600)
+            if translated_joined and translated_joined != joined:
+                translated_list = [
+                    p.strip() for p in translated_joined.split("|") if p.strip()
+                ]
+                if translated_list:
+                    vendor.products_original = list(vendor.products)
+                    vendor.products = translated_list[:8]
+                    changed = True
+
+    # Phase 5 — products_detailed + focus_summary. Always check (independent
+    # of legacy already_translated state) because product enrichment can
+    # run AFTER initial vendor translation; products_detailed gets populated
+    # later and needs its own translation pass.
+    if getattr(vendor, "focus_summary", None):
+        translated = await _translate_one(vendor.focus_summary)
+        if translated and translated != vendor.focus_summary:
+            vendor.focus_summary = translated
             changed = True
 
-    if vendor.tagline:
-        original = vendor.tagline
-        translated = await _translate_one(original)
-        if translated and translated != original:
-            vendor.tagline_original = original
-            vendor.tagline = translated
-            changed = True
-
-    # Products: short keywords, batch as one to save round trips.
-    if vendor.products:
-        joined = " | ".join(vendor.products[:8])
-        translated_joined = await _translate_one(joined, max_chars=600)
-        if translated_joined and translated_joined != joined:
-            translated_list = [
-                p.strip() for p in translated_joined.split("|") if p.strip()
-            ]
-            if translated_list:
-                vendor.products_original = list(vendor.products)
-                vendor.products = translated_list[:8]
+    products_detailed = getattr(vendor, "products_detailed", None) or []
+    for p in products_detailed:
+        if p.summary:
+            translated = await _translate_one(p.summary)
+            if translated and translated != p.summary:
+                p.summary = translated
+                changed = True
+        if p.scope_match_reason:
+            translated = await _translate_one(p.scope_match_reason)
+            if translated and translated != p.scope_match_reason:
+                p.scope_match_reason = translated
+                changed = True
+        if p.pros:
+            joined = " | ".join(p.pros)
+            translated_joined = await _translate_one(joined, max_chars=400)
+            if translated_joined and translated_joined != joined:
+                translated_list = [
+                    line.strip() for line in translated_joined.split("|")
+                    if line.strip()
+                ]
+                if translated_list:
+                    p.pros = translated_list[: len(p.pros)]
+                    changed = True
+        if p.cons:
+            joined = " | ".join(p.cons)
+            translated_joined = await _translate_one(joined, max_chars=400)
+            if translated_joined and translated_joined != joined:
+                translated_list = [
+                    line.strip() for line in translated_joined.split("|")
+                    if line.strip()
+                ]
+                if translated_list:
+                    p.cons = translated_list[: len(p.cons)]
+                    changed = True
+        if p.category:
+            translated = await _translate_one(p.category, max_chars=80)
+            if translated and translated != p.category:
+                p.category = translated
                 changed = True
 
     if changed:

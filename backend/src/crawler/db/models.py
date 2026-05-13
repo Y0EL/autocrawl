@@ -75,6 +75,19 @@ class VendorORM(Base):
     translation_method: Mapped[str | None] = mapped_column(String(60))
     translated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Phase 5 — Product catalog + DOI scoring. See `Product` schema in
+    # crawler.schemas. Legacy `products` JSONB column stays as input.
+    products_detailed: Mapped[list[dict]] = mapped_column(
+        JsonType, default=list, nullable=False, server_default="[]"
+    )
+    overall_scope_score: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0.0", nullable=False, index=True
+    )
+    focus_summary: Mapped[str | None] = mapped_column(Text)
+    domain_of_interest: Mapped[list[str]] = mapped_column(
+        JsonType, default=list, nullable=False, server_default="[]"
+    )
+
     first_enriched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now_utc, nullable=False
     )
@@ -343,3 +356,31 @@ class FusionEmailDraftORM(Base):
     copied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     fusion: Mapped[FusionORM] = relationship(back_populates="drafts")
+
+
+class VendorEmailDraftORM(Base):
+    """Per-vendor outreach email draft, persisted across sessions.
+
+    Stored as one row per (vendor_id, language). Regenerating overwrites
+    the row in-place so the operator always sees the latest AI draft;
+    manual edits via PUT also overwrite. Soft-delete not required - the
+    table is small and drafts have low half-life.
+    """
+
+    __tablename__ = "vendor_email_drafts"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    vendor_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    language: Mapped[str] = mapped_column(String(8), default="en", nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    model_used: Mapped[str | None] = mapped_column(String(120))
+    edited_manually: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

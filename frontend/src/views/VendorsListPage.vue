@@ -4,11 +4,8 @@ import { useQuery } from '@tanstack/vue-query'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import type { Vendor } from '@/api/types'
-import HudPanel from '@/components/HudPanel.vue'
-import HudIndustryBadge from '@/components/HudIndustryBadge.vue'
-import HudCompletenessBar from '@/components/HudCompletenessBar.vue'
-import HudStatusPill from '@/components/HudStatusPill.vue'
-import HudEmptyState from '@/components/HudEmptyState.vue'
+import PageHeader from '@/components/shell/PageHeader.vue'
+import GeoAvatar from '@/components/GeoAvatar.vue'
 import { exportCsv } from '@/composables/useCsvExport'
 import { resolveCountry, flagEmoji } from '@/data/country_resolver'
 
@@ -20,12 +17,9 @@ const industry = ref('')
 const country = ref(typeof route.query.country === 'string' ? route.query.country : '')
 const status = ref('enriched')
 
-// Keep dropdown synced when navigating to /vendors?country=… from another page.
 watch(
   () => route.query.country,
-  (next) => {
-    country.value = typeof next === 'string' ? next : ''
-  },
+  (next) => { country.value = typeof next === 'string' ? next : '' },
 )
 
 const countryFlag = computed(() => {
@@ -54,29 +48,23 @@ const { data, isLoading } = useQuery({
       industry: industry.value,
       country: country.value,
       status: status.value || undefined,
-      limit: 100,
+      limit: 200,
     }),
   refetchInterval: 30000,
   refetchOnWindowFocus: true,
 })
 
-const statusToneMap: Record<string, 'ok' | 'muted' | 'crit' | 'warn'> = {
-  enriched: 'ok',
-  unresolved: 'muted',
-  enrich_failed: 'crit',
-  scope_rejected: 'warn',
-  validation_rejected: 'warn',
-}
-
-const statusLabelMap: Record<string, string> = {
-  enriched: 'OK',
-  unresolved: 'BELUM',
-  enrich_failed: 'GAGAL',
-  scope_rejected: 'OFF-SCOPE',
-  validation_rejected: 'TIPIS',
-}
-
 const items = computed(() => data.value?.items ?? [])
+const total = computed(() => data.value?.total ?? 0)
+
+function statusTone(s: string): { color: string; label: string } {
+  if (s === 'enriched')           return { color: 'ok',    label: 'OK' }
+  if (s === 'unresolved')         return { color: 'mute',  label: 'BELUM' }
+  if (s === 'enrich_failed')      return { color: 'crit',  label: 'GAGAL' }
+  if (s === 'scope_rejected')     return { color: 'warn',  label: 'OFF' }
+  if (s === 'validation_rejected')return { color: 'warn',  label: 'TIPIS' }
+  return { color: 'mute', label: s.toUpperCase() }
+}
 
 function handleExport() {
   exportCsv('vendors_export.csv', items.value, [
@@ -92,202 +80,227 @@ function handleExport() {
   ])
 }
 
-function sourcePill(v: Vendor): { tone: 'crit' | 'info' | 'accent' | 'muted'; label: string } {
+function sourceTag(v: Vendor): string {
   const types = new Set((v.source_trail ?? []).map((s) => s.type))
-  if (types.has('pdf')) return { tone: 'crit', label: 'PDF' }
-  if (types.has('aggregator')) return { tone: 'info', label: 'AGR' }
-  if (types.has('search')) return { tone: 'accent', label: 'SRC' }
-  return { tone: 'muted', label: 'MAN' }
+  if (types.has('pdf')) return 'PDF'
+  if (types.has('aggregator')) return 'AGR'
+  if (types.has('search')) return 'SRC'
+  return 'MAN'
 }
+
+const stats = computed(() => [
+  { label: 'Total', value: total.value.toLocaleString(), tone: 'amber' as const },
+  { label: 'Termuat', value: items.value.length, tone: 'mute' as const },
+])
+
+const STATUS_OPTIONS = [
+  { value: '',                    label: 'Semua status' },
+  { value: 'enriched',            label: 'Enriched' },
+  { value: 'unresolved',          label: 'Belum resolve' },
+  { value: 'enrich_failed',       label: 'Gagal' },
+  { value: 'scope_rejected',      label: 'Off-scope' },
+  { value: 'validation_rejected', label: 'Tipis' },
+]
+const INDUSTRY_OPTIONS = [
+  { value: '',                label: 'Semua industri' },
+  { value: 'defense',         label: 'Defense' },
+  { value: 'cybersecurity',   label: 'Cybersecurity' },
+  { value: 'law_enforcement', label: 'Law Enforcement' },
+  { value: 'surveillance',    label: 'Surveillance' },
+  { value: 'aerospace',       label: 'Aerospace' },
+]
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 p-3">
-    <div
-      v-if="country"
-      class="flex items-center justify-between rounded-md border border-accent-500/40 bg-accent-500/5 px-3 py-2"
+  <div class="flex flex-col">
+    <PageHeader
+      title="Vendor Registry"
+      subtitle="Indeks semua exhibitor yang sudah ter-enriched + yang menunggu resolusi"
+      :stats="stats"
     >
-      <div class="flex items-center gap-2 font-mono text-xs text-accent-200">
-        <span class="text-base">{{ countryFlag }}</span>
-        <span class="uppercase tracking-ops">FILTER NEGARA: {{ country }}</span>
-      </div>
-      <button
-        class="hud-btn-ghost h-7 px-2 text-2xs"
-        type="button"
-        title="Hapus filter"
-        @click="clearCountryFilter"
-      >
-        <FaIcon :icon="['fas', 'xmark']" class="mr-1 text-2xs" />
-        HAPUS
-      </button>
-    </div>
-
-    <HudPanel title="Filter Vendor" code="VND-FLT">
       <template #actions>
-        <button
-          class="hud-btn-ghost h-7"
-          :disabled="!items.length"
-          @click="handleExport"
-        >
-          <FaIcon :icon="['fas', 'arrow-up-right-from-square']" class="text-2xs" />
+        <button class="btn btn-ghost h-9" :disabled="!items.length" @click="handleExport">
+          <FaIcon :icon="['fas', 'arrow-up-right-from-square']" class="text-[10px]" />
           <span>Export CSV</span>
         </button>
       </template>
-      <div class="flex flex-col gap-2 md:flex-row md:items-center">
-        <div class="relative flex-1">
-          <FaIcon
-            :icon="['fas', 'magnifying-glass']"
-            class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-2xs text-base-400 dark:text-base-500"
-          />
-          <input
-            v-model="search"
-            type="text"
-            placeholder="CARI NAMA / DOMAIN..."
-            class="hud-input pl-7"
-          />
-        </div>
-        <select v-model="status" class="hud-input md:w-44">
-          <option value="">SEMUA STATUS</option>
-          <option value="enriched">ENRICHED</option>
-          <option value="unresolved">BELUM TER-RESOLVE</option>
-          <option value="enrich_failed">GAGAL ENRICH</option>
-          <option value="scope_rejected">OFF-SCOPE</option>
-          <option value="validation_rejected">DATA TIPIS</option>
-        </select>
-        <select v-model="industry" class="hud-input md:w-48">
-          <option value="">SEMUA INDUSTRI</option>
-          <option value="defense">DEFENSE</option>
-          <option value="cybersecurity">CYBERSECURITY</option>
-          <option value="law_enforcement">LAW ENFORCEMENT</option>
-          <option value="surveillance">SURVEILLANCE</option>
-          <option value="aerospace">AEROSPACE</option>
-        </select>
-        <select v-model="country" class="hud-input md:w-48">
-          <option value="">SEMUA NEGARA</option>
-          <option v-for="c in countriesQ.data.value ?? []" :key="c.country" :value="c.country">
-            {{ c.country.toUpperCase() }} ({{ c.count }})
-          </option>
-        </select>
+    </PageHeader>
+
+    <!-- Active filter chip -->
+    <div v-if="country" class="flex items-center justify-between bg-amber/5 rule-b border-amber/30 px-6 py-2.5">
+      <div class="flex items-center gap-2 text-[12px]">
+        <span class="text-[15px]">{{ countryFlag }}</span>
+        <span class="label label-amber">Filter Negara</span>
+        <span class="text-ink">{{ country }}</span>
       </div>
-    </HudPanel>
+      <button class="btn btn-ghost h-7 px-2" type="button" title="Hapus filter" @click="clearCountryFilter">
+        <FaIcon :icon="['fas', 'xmark']" class="text-[10px]" />
+        Hapus
+      </button>
+    </div>
 
-    <HudPanel
-      :title="`Daftar Vendor (${items.length})`"
-      code="VND-LIST"
-    >
-      <template #actions>
-        <span class="hud-chip text-2xs">LIVE 30s</span>
-        <span
-          v-if="isLoading"
-          class="font-mono text-2xs uppercase tracking-ops text-warn-600 dark:text-warn-400"
-        >
-          MEMUAT...
-        </span>
-      </template>
-
-      <div v-if="items.length === 0 && !isLoading">
-        <HudEmptyState
-          icon="building"
-          title="Tidak ada vendor"
-          hint="Belum ada vendor yang cocok dengan filter saat ini. Coba ubah filter atau jalankan operasi crawl baru."
+    <!-- Filter command bar -->
+    <div class="rule-b bg-bg flex items-center gap-2 px-6 py-3">
+      <div class="relative flex-1 max-w-md">
+        <FaIcon :icon="['fas', 'magnifying-glass']"
+                class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-ink-mute" />
+        <input
+          v-model="search"
+          type="text"
+          placeholder="Cari nama perusahaan atau domain…"
+          class="input pl-8 h-9"
         />
       </div>
+      <select v-model="status" class="input h-9 w-44">
+        <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+      <select v-model="industry" class="input h-9 w-44">
+        <option v-for="o in INDUSTRY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+      <select v-model="country" class="input h-9 w-44">
+        <option value="">Semua negara</option>
+        <option v-for="c in countriesQ.data.value ?? []" :key="c.country" :value="c.country">
+          {{ c.country }} ({{ c.count }})
+        </option>
+      </select>
+      <span v-if="isLoading" class="ml-auto label label-amber flex items-center gap-1.5">
+        <span class="dot dot-amber pulse-amber"></span>Memuat…
+      </span>
+      <span v-else class="ml-auto label label-mute">Live · 30s</span>
+    </div>
 
-      <div v-else class="overflow-x-auto">
-        <table class="hud-table">
-          <thead>
-            <tr>
-              <th class="w-[26%]">Perusahaan</th>
-              <th class="w-[16%]">Domain</th>
-              <th class="w-[8%] text-center">Status</th>
-              <th class="w-[18%]">Industri</th>
-              <th class="w-[8%]">Negara</th>
-              <th class="w-[10%]">Kelengkapan</th>
-              <th class="w-[8%] text-center">Sumber</th>
-              <th class="w-[4%] text-center">Bhs</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in items" :key="row.vendor_id">
-              <td>
-                <RouterLink
-                  :to="`/vendors/${row.vendor_id || row.domain}`"
-                  class="flex items-center gap-2 font-medium text-base-800 hover:text-accent-600 dark:text-base-100 dark:hover:text-accent-300"
+    <!-- Ledger table -->
+    <div class="flex-1 overflow-auto">
+      <table v-if="items.length > 0" class="ledger w-full">
+        <thead>
+          <tr>
+            <th class="w-[22%]">Perusahaan</th>
+            <th class="w-[14%]">Domain</th>
+            <th class="w-[7%] text-center">Status</th>
+            <th class="w-[16%]">Industri</th>
+            <th class="w-[9%]">Negara</th>
+            <th class="w-[14%]">Tech Stack</th>
+            <th class="w-[10%] text-right">Confidence</th>
+            <th class="w-[8%] text-center">Sumber</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in items" :key="row.vendor_id" class="vendor-row cursor-pointer">
+            <td>
+              <RouterLink
+                :to="`/vendors/${row.vendor_id || row.domain}`"
+                class="flex items-center gap-3 group"
+              >
+                <span
+                  class="vendor-row__avatar"
+                  :data-elite="(row.confidence_score ?? 0) >= 0.9 ? 'true' : 'false'"
+                  data-elite-style="inset"
                 >
-                  <span
-                    v-if="!row.logo_url"
-                    class="flex h-7 w-7 shrink-0 items-center justify-center border border-base-200 bg-base-50 font-mono text-2xs font-semibold text-base-700 dark:border-base-700 dark:bg-base-800 dark:text-base-200"
-                  >
-                    {{ row.company_name.charAt(0).toUpperCase() }}
-                  </span>
                   <img
-                    v-else
+                    v-if="row.logo_url"
                     :src="row.logo_url"
                     :alt="row.company_name"
-                    class="h-7 w-7 shrink-0 border border-base-200 bg-white object-contain p-0.5 dark:border-base-700 dark:bg-base-800"
+                    class="vendor-row__logo"
                     referrerpolicy="no-referrer"
                   />
-                  <span class="truncate">{{ row.company_name }}</span>
-                </RouterLink>
-              </td>
-              <td>
-                <span
-                  v-if="row.domain"
-                  class="hud-mono-num truncate text-2xs text-base-600 dark:text-base-300"
-                >
-                  {{ row.domain }}
-                </span>
-                <span
-                  v-else
-                  class="hud-mono-num truncate text-2xs text-base-400 dark:text-base-500"
-                >
-                  -
-                </span>
-              </td>
-              <td class="text-center">
-                <HudStatusPill
-                  :tone="statusToneMap[row.status] ?? 'muted'"
-                  :label="statusLabelMap[row.status] ?? row.status.toUpperCase()"
-                />
-              </td>
-              <td>
-                <div class="flex flex-wrap gap-1">
-                  <HudIndustryBadge
-                    v-for="tag in row.industries.slice(0, 2)"
-                    :key="tag"
-                    :label="tag"
+                  <GeoAvatar
+                    v-else
+                    :seed="row.vendor_id || row.domain || row.company_name"
+                    :fallback="row.company_name"
+                    :size="36"
                   />
-                  <span v-if="row.industries.length > 2" class="hud-chip">
-                    +{{ row.industries.length - 2 }}
-                  </span>
-                </div>
-              </td>
-              <td>
-                <span class="hud-mono-num text-2xs uppercase">
-                  {{ row.address?.country ?? '-' }}
                 </span>
-              </td>
-              <td>
-                <HudCompletenessBar :score="row.confidence_score" show-label />
-              </td>
-              <td class="text-center">
-                <HudStatusPill
-                  :tone="sourcePill(row).tone"
-                  :label="sourcePill(row).label"
-                />
-              </td>
-              <td class="text-center">
+                <span class="truncate text-ink group-hover:text-amber transition-colors">{{ row.company_name }}</span>
+              </RouterLink>
+            </td>
+            <td>
+              <span v-if="row.domain" class="num-display text-[11.5px] text-ink-2 truncate block">{{ row.domain }}</span>
+              <span v-else class="text-ink-mute">—</span>
+            </td>
+            <td class="text-center">
+              <span class="pill" :class="`pill-${statusTone(row.status).color}`">
+                {{ statusTone(row.status).label }}
+              </span>
+            </td>
+            <td>
+              <div class="flex flex-wrap gap-1">
                 <span
-                  class="hud-mono-num text-2xs uppercase"
-                  :class="row.language_code === 'id' ? 'text-accent-600 dark:text-accent-300' : 'text-base-400 dark:text-base-500'"
+                  v-for="tag in row.industries.slice(0, 2)"
+                  :key="tag"
+                  class="text-[10.5px] px-1.5 py-0.5 rounded-[3px] bg-surface-2 text-ink-2 border border-rule"
                 >
-                  {{ row.language_code === 'id' ? 'ID' : 'EN' }}
+                  {{ tag }}
                 </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <span v-if="row.industries.length > 2" class="text-[10px] text-ink-mute self-center">+{{ row.industries.length - 2 }}</span>
+              </div>
+            </td>
+            <td>
+              <span v-if="row.address?.country" class="flex items-center gap-1.5 text-[12.5px]">
+                <span class="text-[14px]">{{ flagEmoji(resolveCountry(row.address.country)?.cca2 ?? '') }}</span>
+                <span class="truncate">{{ row.address.country }}</span>
+              </span>
+              <span v-else class="text-ink-mute">—</span>
+            </td>
+            <td>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="tech in (row.tech_stack ?? []).slice(0, 3)"
+                  :key="tech"
+                  class="text-[10px] px-1.5 py-0.5 rounded-[3px] bg-surface-2 text-ink-2 border border-rule"
+                >
+                  {{ tech }}
+                </span>
+                <span v-if="!row.tech_stack?.length" class="text-ink-mute">—</span>
+              </div>
+            </td>
+            <td class="text-right">
+              <div class="flex items-center justify-end gap-2">
+                <div class="w-14 h-1 rounded-[1px] bg-surface-2 overflow-hidden">
+                  <div
+                    class="h-full bg-amber rounded-[1px]"
+                    :style="{ width: `${Math.min(100, Math.round((row.confidence_score ?? 0) * 100))}%` }"
+                  />
+                </div>
+                <span class="num-display text-[11.5px] tabular-nums w-9">
+                  {{ ((row.confidence_score ?? 0) * 100).toFixed(0) }}%
+                </span>
+              </div>
+            </td>
+            <td class="text-center">
+              <span class="pill text-[9.5px]">{{ sourceTag(row) }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-else-if="!isLoading" class="flex flex-col items-center justify-center py-24 gap-3">
+        <FaIcon :icon="['fas', 'building']" class="text-[28px] text-ink-mute" />
+        <span class="label label-mute">Tiada vendor yang cocok dengan filter</span>
+        <span class="text-[12px] text-ink-mute">Ubah filter atau jalankan operasi crawl baru</span>
       </div>
-    </HudPanel>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.vendor-row__avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgb(var(--surface-2));
+}
+.vendor-row__logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  background: rgb(var(--surface));
+  border-radius: inherit;
+}
+</style>

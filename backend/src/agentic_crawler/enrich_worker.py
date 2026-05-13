@@ -47,6 +47,7 @@ from .enrich_agent import run_enrich_for_task
 from .enrich_lessons import invalidate_cache as _invalidate_few_shot_cache
 from .enrich_queue import EnrichTask
 from .lessons import archive_lesson, categorize_failure
+from .static_scraper import StaticScrapeResult, try_static_scrape
 
 _log = get_logger(__name__)
 
@@ -101,6 +102,195 @@ async def _archive_outcome(
 
 
 _PREWARMED_SESSIONS: dict[int, Any] = {}
+
+
+def _domain_from_hint_url(hint_url: str | None) -> str | None:
+    """Extract bare host from a hint URL ONLY when the URL points at the
+    vendor's homepage (path is empty or '/'). Returns None otherwise.
+
+    Listing pool often passes deep aggregator URLs like
+    `dimdex.com/exhibitor/YONCA_SHIPYARD` — the host is the expo site,
+    not the vendor's, so static-scraping it finds dimdex's contact page
+    instead of YONCA's. Static scraper only useful when listing pool
+    already discovered the vendor's real homepage.
+    """
+    if not hint_url:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(hint_url)
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if not host:
+            return None
+        # Reject deep paths — listing pool gives us aggregator profile page,
+        # not vendor homepage. Path of '' or '/' is acceptable; '/foo/bar'
+        # is rejected. The agent (search_vendor) is the path forward for
+        # these tasks; PR 4 will re-run static scrape AFTER agent finds
+        # the real domain.
+        path = parsed.path or "/"
+        if path != "/" and path != "":
+            return None
+        return host
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _vendor_from_static(
+    scrape: StaticScrapeResult, task: EnrichTask
+) -> Any:
+    """Build a `crawler.schemas.Vendor` from a successful static scrape.
+    Same shape persist_vendor expects; goes through dedup + translator
+    just like an agent-produced vendor."""
+    from crawler.schemas import ContactPoint, SourceProvenance, Vendor
+
+    contacts: list[ContactPoint] = []
+    for e in scrape.emails:
+        contacts.append(ContactPoint(type="email", value=e))
+    for p in scrape.phones:
+        contacts.append(ContactPoint(type="phone", value=p))
+
+    canonical = f"https://{scrape.domain}/"
+    return Vendor(
+        status="enriched",
+        company_name=task.vendor_name,
+        domain=scrape.domain,
+        canonical_url=canonical,  # type: ignore[arg-type]
+        description=scrape.description,
+        contacts=contacts,
+        address=scrape.address,
+        source_tags=["agentic_enrich", "static_scrape"],
+        source_trail=[
+            SourceProvenance(
+                source="static_scraper",
+                url=scrape.source_url,  # type: ignore[arg-type]
+            )
+        ],
+        raw_extracts={
+            "static_scrape_source_url": scrape.source_url,
+            "static_scrape_country_extracted": scrape.country,
+        },
+        confidence_score=0.6,  # mid — deterministic but no agent verification
+    )
+
+
+async def _persist_static_scrape_result(
+    task: EnrichTask,
+    scrape: StaticScrapeResult,
+    entry_id: str,
+) -> None:
+    """Persist a static-scrape Vendor through the normal pipeline (dedup
+    + translator + reporter). Mirrors the agent-success path but without
+    raw_steps / lesson archive (we still archive a minimal lesson so the
+    success rate metric reflects this path)."""
+    from crawler.agents import dedup as dedup_agent
+    from crawler.agents import reporter as reporter_agent
+    from crawler.schemas import VendorURL
+
+    v = _vendor_from_static(scrape, task)
+    try:
+        vurl = VendorURL(
+            canonical_url=str(v.canonical_url),
+            domain=v.domain,
+            expo_id=task.expo_id,
+            exhibitor_name=task.vendor_name,
+            resolved_from=task.hint_url,
+        )
+        is_dup = await dedup_agent.check_and_merge(vurl)
+    except Exception as e:  # noqa: BLE001
+        _log.debug("enrich_worker.static_dedup_failed", error=str(e)[:120])
+        is_dup = False
+
+    if is_dup:
+        try:
+            await reporter_agent.merge_existing_with_expo(v.domain, task.expo_id)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            agentic_enrich_outcomes_total.labels(status="dedup_skipped").inc()
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "enrich_worker.static_pre_pass_dedup",
+            vendor=task.vendor_name[:80], domain=v.domain,
+        )
+        return
+
+    try:
+        from .translator import translate_vendor_inplace
+        await translate_vendor_inplace(v)
+    except Exception as _e:  # noqa: BLE001
+        _log.debug("enrich_worker.static_translate_skipped", error=str(_e)[:120])
+
+    try:
+        persisted, reject_cat = await reporter_agent.persist_vendor(v)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("enrich_worker.static_persist_failed", error=str(e)[:200])
+        try:
+            agentic_enrich_outcomes_total.labels(status="error").inc()
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    if persisted:
+        try:
+            agentic_enrich_outcomes_total.labels(status="success").inc()
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "enrich_worker.static_pre_pass_persisted",
+            vendor=task.vendor_name[:80], domain=v.domain,
+            source_url=scrape.source_url,
+            emails=len(scrape.emails), phones=len(scrape.phones),
+        )
+    else:
+        try:
+            agentic_enrich_outcomes_total.labels(status=reject_cat or "rejected").inc()
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "enrich_worker.static_pre_pass_rejected",
+            vendor=task.vendor_name[:80], category=reject_cat,
+        )
+
+
+async def _try_static_pre_pass(task: EnrichTask) -> StaticScrapeResult | None:
+    """Phase 4 PR 3 — attempt deterministic HTTP scrape before spawning
+    Browser-Use. Returns scrape result on hit, None on miss/disabled.
+
+    Skips when hint_url points at an aggregator (dimdex.com style listing
+    pages) — static-scraping an aggregator finds the directory's contact
+    page, not the vendor's. For aggregator-only vendors the agent must
+    search_vendor first to discover the real domain."""
+    s = get_agentic_settings()
+    if not getattr(s, "enrich_static_pre_pass_enabled", True):
+        return None
+    domain = _domain_from_hint_url(task.hint_url)
+    if not domain:
+        return None
+    # Defense: don't waste HTTP probes on aggregators. Reuse the same
+    # blocklist `search_vendor` uses code-side (PR 5).
+    try:
+        from .tools import _AGGREGATOR_TLDS, _registrable_domain
+
+        if _registrable_domain(f"https://{domain}/") in _AGGREGATOR_TLDS:
+            _log.debug(
+                "enrich_worker.static_pre_pass_skip_aggregator",
+                domain=domain, vendor=task.vendor_name[:60],
+            )
+            return None
+    except ImportError:
+        pass
+    try:
+        return await try_static_scrape(domain, task.vendor_name)
+    except Exception as e:  # noqa: BLE001
+        _log.debug(
+            "enrich_worker.static_pre_pass_error",
+            vendor=task.vendor_name[:80], error=str(e)[:160],
+        )
+        return None
 
 
 async def _persist_unresolved_fallback(task: EnrichTask, category: str) -> None:
@@ -176,6 +366,15 @@ async def _process_one(
     )
 
     try:
+        # Phase 4 PR 3 — Static-scraper pre-pass. ~3-15s per call. If we
+        # extract email or phone via deterministic HTTP, build a Vendor
+        # directly and skip Browser-Use entirely. Saves ~4 minutes/vendor
+        # for the 30-40% of domains with static contact pages.
+        static_scrape = await _try_static_pre_pass(task)
+        if static_scrape is not None and static_scrape.has_contact:
+            await _persist_static_scrape_result(task, static_scrape, entry_id)
+            return
+
         prewarmed = _PREWARMED_SESSIONS.get(consumer_idx)
         result = await run_enrich_for_task(task, prewarmed_session=prewarmed)
 
@@ -297,6 +496,21 @@ async def _process_one(
                 domain=v.domain,
                 completeness=result.completeness_score,
             )
+            # Phase 5 — enqueue product-catalog enrichment for this vendor.
+            # Fire-and-forget at the queue level (XADD is fast); the actual
+            # LLM work runs in product_backfill_worker which has its own
+            # tier=light cap so it can't starve the live enrich pool.
+            if getattr(s, "product_catalog_live_enabled", True) and v.products:
+                try:
+                    from . import product_backfill_queue
+                    await product_backfill_queue.publish_vendor(
+                        v.vendor_id, source="live"
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _log.debug(
+                        "enrich_worker.product_backfill_enqueue_skipped",
+                        error=str(_e)[:120],
+                    )
         else:
             cat = reject_cat or "rejected"
             await _archive_outcome(

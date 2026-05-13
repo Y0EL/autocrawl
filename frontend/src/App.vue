@@ -1,29 +1,23 @@
 <script setup lang="ts">
 import { Toaster } from 'vue-sonner'
 import AppShell from '@/layouts/AppShell.vue'
-import { useTheme } from '@/composables/useTheme'
+import { useCursorLight } from '@/composables/useCursorLight'
 
-const { isDark } = useTheme()
+useCursorLight()
 </script>
 
 <template>
   <AppShell />
+
+  <!-- Cursor gold tail — fixed dot + halo that follow the pointer. -->
+  <div class="cursor-halo" aria-hidden="true" />
+  <div class="cursor-dot" aria-hidden="true" />
+
   <Toaster
-    :theme="isDark ? 'dark' : 'light'"
+    theme="system"
     position="top-right"
     rich-colors
     close-button
     :offset="16"
-    :toast-options="{
-      style: {
-        fontFamily: '\'JetBrains Mono Variable\', \'JetBrains Mono\', monospace',
-        fontSize: '12px',
-        borderRadius: '0',
-        border: '1px solid rgba(20,18,16,0.18)',
-        background: 'rgb(244,239,230)',
-        color: 'rgb(20,18,16)',
-        boxShadow: '0 8px 28px rgba(0,0,0,0.10)',
-      },
-    }"
   />
 </template>

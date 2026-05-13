@@ -6,15 +6,15 @@ defineProps<{ entries: SourceProvenance[] }>()
 function iconFor(type: string): { icon: string; color: string } {
   switch (type) {
     case 'pdf':
-      return { icon: 'file-pdf', color: '#EF4444' }
+      return { icon: 'file-pdf', color: 'rgb(var(--crit))' }
     case 'aggregator':
-      return { icon: 'globe', color: '#06B6D4' }
+      return { icon: 'globe', color: 'rgb(var(--cyan))' }
     case 'search':
-      return { icon: 'magnifying-glass', color: '#FFB800' }
+      return { icon: 'magnifying-glass', color: 'rgb(var(--amber))' }
     case 'manual':
-      return { icon: 'circle-info', color: '#8F99A8' }
+      return { icon: 'circle-info', color: 'rgb(var(--ink-mute))' }
     default:
-      return { icon: 'circle-nodes', color: '#8F99A8' }
+      return { icon: 'circle-nodes', color: 'rgb(var(--ink-mute))' }
   }
 }
 

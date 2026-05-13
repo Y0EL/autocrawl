@@ -25,7 +25,7 @@ const option = computed(() => {
       formatter: (params: { dataIndex: number; value: number }[]) => {
         const p = params[0]
         const label = props.labels?.[p.dataIndex] ?? p.dataIndex
-        return `<span style="font-family:JetBrains Mono Variable,monospace">${label}: <b>${p.value}</b></span>`
+        return `<span style="font-family:Geist Mono Variable,monospace">${label}: <b>${p.value}</b></span>`
       },
     },
     xAxis: {

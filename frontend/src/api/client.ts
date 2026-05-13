@@ -1,5 +1,7 @@
 import axios from 'axios'
 import type {
+  AgentTracesResponse,
+  CountryArc,
   CountryStat,
   ErrorSummaryResponse,
   ExhibitorRefRow,
@@ -28,6 +30,9 @@ import type {
   ScopeRulesResponse,
   ScopeSuggestResponse,
   SettingsResponse,
+  LlmQueueResponse,
+  OllamaPsResponse,
+  AgenticSessionsResponse,
   SourceTypeStat,
   TimelinePoint,
   Vendor,
@@ -73,6 +78,60 @@ export const api = {
     http.post<{ status: string; vendor_id: string; domain: string | null; current_status: string; current_score: number }>(
       `/vendors/${vendorId}/deepen`,
     ).then((r) => r.data),
+  // Phase 5 — enqueue product-catalog enrichment for one vendor.
+  deepenVendorProducts: (vendorId: string) =>
+    http.post<{ status: string; vendor_id: string; queue_entry_id: string | null; has_legacy_products: boolean }>(
+      `/vendors/${vendorId}/deepen-products`,
+    ).then((r) => r.data),
+  // Industrial-invitation email draft per (vendor, language). Persisted.
+  vendorEmailDraft: {
+    get: (vendorId: string, language: 'en' | 'id' = 'en') =>
+      http
+        .get<import('./types').VendorEmailDraftLookup>(
+          `/vendors/${vendorId}/email-draft`,
+          { params: { language } },
+        )
+        .then((r) => r.data),
+    list: (vendorId: string) =>
+      http
+        .get<{ vendor_id: string; items: import('./types').VendorEmailDraft[] }>(
+          `/vendors/${vendorId}/email-drafts`,
+        )
+        .then((r) => r.data),
+    generate: (
+      vendorId: string,
+      body: { language?: 'en' | 'id'; our_context?: string | null } = {},
+    ) =>
+      http
+        .post<import('./types').VendorEmailDraft>(
+          `/vendors/${vendorId}/email-draft/generate`,
+          body,
+        )
+        .then((r) => r.data),
+    save: (
+      vendorId: string,
+      body: { subject: string; body: string },
+      language: 'en' | 'id' = 'en',
+    ) =>
+      http
+        .put<import('./types').VendorEmailDraft>(
+          `/vendors/${vendorId}/email-draft`,
+          body,
+          { params: { language } },
+        )
+        .then((r) => r.data),
+  },
+  // Vendor PDF dossier - structured content from LLM, frontend renders to PDF.
+  // 180s timeout: Mistral dossier generation can take 60-120s for vendors
+  // with rich product catalogs; 90s was hitting the boundary.
+  vendorDossierContent: (vendorId: string, language: 'en' | 'id' = 'en') =>
+    http
+      .post<import('./types').VendorDossierResponse>(
+        `/vendors/${vendorId}/dossier-content`,
+        null,
+        { params: { language }, timeout: 180_000 },
+      )
+      .then((r) => r.data),
   expos: (q: ExposQuery = {}) =>
     http.get<PaginatedResponse<Expo>>('/expos', { params: q }).then((r) => r.data),
   expo: (expoId: string) => http.get<Expo>(`/expos/${expoId}`).then((r) => r.data),
@@ -101,9 +160,21 @@ export const api = {
       http
         .get<ExpoCountryDetail>(`/stats/expo-countries/${encodeURIComponent(country)}`)
         .then((r) => r.data),
+    countryArcs: (limit = 80) =>
+      http
+        .get<CountryArc[]>('/stats/country-arcs', { params: { limit } })
+        .then((r) => r.data),
   },
   health: () => http.get<HealthResponse>('/health').then((r) => r.data),
   settings: () => http.get<SettingsResponse>('/settings').then((r) => r.data),
+  system: {
+    llmQueue: () =>
+      http.get<LlmQueueResponse>('/system/llm-queue').then((r) => r.data),
+    ollamaPs: () =>
+      http.get<OllamaPsResponse>('/system/ollama-ps').then((r) => r.data),
+    agenticSessions: () =>
+      http.get<AgenticSessionsResponse>('/system/agentic-sessions').then((r) => r.data),
+  },
   orchestrator: {
     state: () => http.get<OrchestratorState>('/orchestrator/state').then((r) => r.data),
     events: (since = '0', limit = 50) =>
@@ -123,6 +194,10 @@ export const api = {
         .get<ErrorSummaryResponse>('/orchestrator/error-summary', {
           params: { samples_per_group: samplesPerGroup },
         })
+        .then((r) => r.data),
+    agentTraces: (limit = 60) =>
+      http
+        .get<AgentTracesResponse>('/orchestrator/agent-traces', { params: { limit } })
         .then((r) => r.data),
   },
   exhibitorRefs: {

@@ -122,6 +122,24 @@ class AgenticSettings(BaseSettings):
         default=True, alias="AGENTIC_LESSONS_ARCHIVE_RECORDINGS"
     )
 
+    # ---- Dead YAML seed quarantine (returning-pattern fix) --------------
+    # Skip a YAML seed if it produced N consecutive `empty_result` lessons
+    # within `dead_seed_recent_window_hours`. Quarantine lasts
+    # `dead_seed_quarantine_hours` from the most recent failure. Curiosity
+    # bypass: random retry probability — a permanently broken page might
+    # have been fixed since last visit. Defaults sized for hourly pass
+    # interval: 3 strikes in 24h → 7-day quarantine, 10% retry chance.
+    dead_seed_strikes: int = Field(default=5, alias="AGENTIC_DEAD_SEED_STRIKES")
+    dead_seed_recent_window_hours: int = Field(
+        default=12, alias="AGENTIC_DEAD_SEED_WINDOW_HOURS"
+    )
+    dead_seed_quarantine_hours: int = Field(
+        default=72, alias="AGENTIC_DEAD_SEED_QUARANTINE_HOURS"
+    )
+    dead_seed_curiosity: float = Field(
+        default=0.25, alias="AGENTIC_DEAD_SEED_CURIOSITY"
+    )
+
     # ---- Phase 2 — multi-region search + multilingual expansion ---------
     # When true, force `expand_seeds(force_multilingual=True)` so every topic
     # produces EN + zh-Hans + ja-Kana + ko-Hangul + ru-Cyrillic queries, and
@@ -177,9 +195,35 @@ class AgenticSettings(BaseSettings):
     # the same `reporter_agent.persist_vendor` writer (no DB schema fork).
     agentic_enrich_enabled: bool = Field(default=False, alias="AGENTIC_ENRICH_ENABLED")
     agentic_enrich_parallel: int = Field(default=4, alias="AGENTIC_ENRICH_PARALLEL")
-    enrich_max_steps: int = Field(default=25, alias="AGENTIC_ENRICH_MAX_STEPS")
+    # Bumped 25→40 + 600→900 in Phase 4: step budget often exhausted at step
+    # 22-25 right when agent reaches /contact page. Trade ~50% elapsed for
+    # higher per-task success rate; net data/hour improves.
+    enrich_max_steps: int = Field(default=40, alias="AGENTIC_ENRICH_MAX_STEPS")
     enrich_task_timeout_seconds: int = Field(
-        default=600, alias="AGENTIC_ENRICH_TASK_TIMEOUT_SECONDS"
+        default=900, alias="AGENTIC_ENRICH_TASK_TIMEOUT_SECONDS"
+    )
+    # Phase 4 PR 3 — try deterministic HTTP scrape on common contact paths
+    # before spawning Browser-Use. ~30-40% of vendors with known domain
+    # have static pages; this saves ~4 min/vendor. Default ON, reversible.
+    enrich_static_pre_pass_enabled: bool = Field(
+        default=True, alias="AGENTIC_ENRICH_STATIC_PRE_PASS"
+    )
+    # Phase 5 — Product catalog enrichment + DOI scoring. Live path enqueues
+    # vendor_id to backfill queue post-persist; backfill worker drains.
+    product_catalog_live_enabled: bool = Field(
+        default=True, alias="AGENTIC_PRODUCT_CATALOG_LIVE"
+    )
+    product_backfill_parallel: int = Field(
+        default=4, alias="AGENTIC_PRODUCT_BACKFILL_PARALLEL"
+    )
+    # Phase 5 — 24h ops watchdog. Browser-Use 0.12.6 has a CDP-cascade
+    # bug that gradually degrades chromium subprocess health after several
+    # hours of sustained operation. Self-restart at this interval forces
+    # a clean process tree before degradation kicks in. Combined with
+    # `restart: unless-stopped` in compose, the container comes back up
+    # automatically. Set to 0 to disable.
+    self_restart_hours: float = Field(
+        default=4.0, alias="AGENTIC_SELF_RESTART_HOURS"
     )
     # Few-shot exemplar counts in the enrich agent's system prompt. Caps
     # context bloat — 3+2 with ≤300 chars each = ~2KB token overhead.

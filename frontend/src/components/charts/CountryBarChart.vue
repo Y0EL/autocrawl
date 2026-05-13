@@ -55,7 +55,7 @@ const option = computed(() => {
           position: 'right',
           color: isDark.value ? tactical.text.primary.dark : tactical.text.primary.light,
           fontSize: 10,
-          fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+          fontFamily: '"Geist Variable", "Geist", monospace',
         },
       },
     ],

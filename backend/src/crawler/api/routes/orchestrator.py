@@ -459,3 +459,29 @@ async def orchestrator_error_summary(
         )
 
     return {"groups": groups, "total": sum(g["count"] for g in groups)}
+
+
+@router.get("/agent-traces")
+async def orchestrator_agent_traces(
+    limit: int = Query(60, ge=1, le=400),
+    since: float | None = Query(None),
+) -> dict[str, Any]:
+    """Recent agent reasoning trace lines (Eval / Memory / Goal / Judge /
+    action) captured live from `browser_use.Agent` log records. Drives
+    the live monitor page's "agent thoughts" panel."""
+    from ...tools.agent_trace_buffer import recent
+
+    items = recent(limit)
+    if since is not None:
+        items = [e for e in items if _epoch(e.get("ts")) > since]
+    return {"items": items}
+
+
+def _epoch(ts: str | None) -> float:
+    if not ts:
+        return 0.0
+    try:
+        # ISO-8601 with timezone suffix → epoch seconds
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except Exception:  # noqa: BLE001
+        return 0.0

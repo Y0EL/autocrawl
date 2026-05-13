@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+// Industry categorical palette: 8 hand-picked editorial hues that read on
+// both paper cream and warm navy. Mid-chroma, no SaaS purple/pink, no
+// full-saturation. Static (not theme-aware) so an industry keeps its
+// identity across themes.
 const palette = [
-  '#FFB800',
-  '#22C55E',
-  '#06B6D4',
-  '#F59E0B',
-  '#A78BFA',
-  '#F472B6',
-  '#34D399',
-  '#FB923C',
+  '#B5321A', // vermilion — aerospace/defense
+  '#9E7C2E', // gold leaf — energy
+  '#10302E', // deep teal — maritime
+  '#6B7A2F', // sage olive — land
+  '#94411E', // brick — munitions
+  '#3D4D6A', // slate blue — cyber/IT
+  '#5C3B5C', // plum ink — other
+  '#3A342D', // ink soft — unspecified
 ]
 
 const props = defineProps<{

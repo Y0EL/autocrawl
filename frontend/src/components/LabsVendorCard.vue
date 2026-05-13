@@ -17,24 +17,27 @@ const emit = defineEmits<{
   <button
     type="button"
     :class="[
-      'group flex w-full flex-col items-stretch gap-2 border p-3 text-left transition-colors',
+      'group flex w-full flex-col items-stretch gap-2.5 p-3 text-left transition-all',
+      'rounded-[6px] border',
       selected
-        ? 'border-accent-500 bg-accent-500/10 dark:bg-accent-500/20'
-        : 'border-base-200 bg-white hover:border-base-300 dark:border-base-700 dark:bg-base-900 dark:hover:border-base-600',
+        ? 'border-amber bg-amber/10 shadow-[0_0_18px_rgba(255,184,64,0.18)]'
+        : 'border-rule bg-surface hover:border-rule-strong hover:bg-surface-2',
     ]"
     @click="emit('toggle', vendor.vendor_id)"
   >
     <div class="flex items-start gap-3">
-      <div class="relative">
-        <input
-          :checked="selected"
-          type="checkbox"
-          class="h-4 w-4 cursor-pointer accent-accent-500"
-          tabindex="-1"
-          readonly
+      <div class="relative shrink-0">
+        <span
+          :class="[
+            'flex h-4 w-4 items-center justify-center rounded-[3px] border transition-colors',
+            selected ? 'border-amber bg-amber' : 'border-ink-mute bg-surface-2',
+          ]"
         >
+          <FaIcon v-if="selected" :icon="['fas', 'check']" class="text-[8px] text-bg" />
+        </span>
       </div>
-      <div class="flex h-10 w-10 shrink-0 items-center justify-center border border-base-200 bg-base-50 dark:border-base-700 dark:bg-base-800">
+
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] border border-rule-strong bg-surface-2">
         <img
           v-if="vendor.logo_url"
           :src="vendor.logo_url"
@@ -43,52 +46,51 @@ const emit = defineEmits<{
           referrerpolicy="no-referrer"
           @error="($event.target as HTMLImageElement).style.display = 'none'"
         >
-        <span v-else class="font-mono text-sm font-semibold text-accent-600 dark:text-accent-400">
+        <span v-else class="text-[14px] font-bold text-amber">
           {{ vendor.company_name.charAt(0).toUpperCase() }}
         </span>
       </div>
+
       <div class="min-w-0 flex-1">
-        <p class="truncate font-mono text-sm font-semibold text-base-900 dark:text-base-50">
+        <p class="truncate text-[13px] font-semibold text-ink">
           {{ vendor.company_name }}
         </p>
-        <p class="truncate font-mono text-2xs text-base-500 dark:text-base-400">
+        <p class="truncate num-display text-[11px] text-ink-mute">
           {{ vendor.domain || 'tanpa domain' }}
         </p>
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-1.5">
+    <div v-if="vendor.industries.length" class="flex flex-wrap items-center gap-1.5">
       <span
         v-for="ind in vendor.industries.slice(0, 3)"
         :key="ind"
-        class="border border-base-200 bg-base-50 px-1.5 py-0.5 font-mono text-2xs uppercase tracking-ops text-base-600 dark:border-base-700 dark:bg-base-800 dark:text-base-300"
+        class="px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-[0.10em] text-ink-2 bg-surface-2 border border-rule"
       >
         {{ ind }}
       </span>
     </div>
 
-    <div class="flex items-center justify-between gap-2 pt-1">
+    <div class="flex items-center justify-between gap-2 pt-1 rule-t">
       <span
         v-if="vendor.has_verified_email"
-        class="hud-pill hud-pill-ok"
+        class="pill pill-ok text-[9.5px]"
       >
-        EMAIL OK
+        <FaIcon :icon="['fas', 'check']" class="text-[8px]" />
+        Email OK
       </span>
-      <span
-        v-else
-        class="hud-pill hud-pill-warn"
-      >
-        BELUM ADA EMAIL
+      <span v-else class="pill text-[9.5px]" style="border-color: rgb(var(--warn) / 0.5); color: rgb(var(--warn))">
+        Belum ada email
       </span>
 
       <button
         v-if="!vendor.has_verified_email"
         type="button"
         :disabled="busyDeepen"
-        class="hud-btn hud-btn-ghost text-2xs"
+        class="text-[10px] font-semibold uppercase tracking-[0.10em] text-amber hover:text-amber-hot disabled:opacity-50 transition-colors"
         @click.stop="emit('deepen', vendor.vendor_id)"
       >
-        {{ busyDeepen ? 'Loading..' : 'Deepen' }}
+        {{ busyDeepen ? 'Loading…' : 'Deepen →' }}
       </button>
     </div>
   </button>

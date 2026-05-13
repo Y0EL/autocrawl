@@ -237,6 +237,16 @@ class Settings(BaseSettings):
     enable_bing: bool = Field(default=False, alias="ENABLE_BING")
     bing_api_key: str = Field(default="", alias="BING_API_KEY")
 
+    # === China-deep search engines (Tier 7) ===
+    # Each is free / no-key. Default ON so they fire whenever a query has
+    # CN intent (script or keyword) OR when force_multilingual is set.
+    # Toggle individually if a specific source becomes hostile.
+    enable_sogou: bool = Field(default=True, alias="ENABLE_SOGOU")
+    sogou_include_weixin: bool = Field(default=True, alias="SOGOU_INCLUDE_WEIXIN")
+    enable_zhihu: bool = Field(default=True, alias="ENABLE_ZHIHU")
+    enable_bilibili: bool = Field(default=True, alias="ENABLE_BILIBILI")
+    enable_baidu_xueshu: bool = Field(default=True, alias="ENABLE_BAIDU_XUESHU")
+
     # === Niche public APIs (no auth, default on) ===
     enable_reddit: bool = Field(default=True, alias="ENABLE_REDDIT")
     reddit_subreddits: str = Field(
@@ -377,10 +387,35 @@ def load_aggregator_blacklist(config_dir: Path) -> set[str]:
 
 
 def load_seed_topics(config_dir: Path) -> dict:
-    path = config_dir / "seed_topics.yaml"
-    if not path.exists():
-        return {"topics": [], "anchor_expos": []}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    """Merge `seed_topics.yaml` with any companion `seed_topics_*.yaml`
+    packs in the same dir. Each pack contributes additional `topics`,
+    `anchor_expos`, and `anchor_organizations` (new) entries; later
+    packs append, never override. This lets domain-specific packs
+    (e.g. `seed_topics_ccipt.yaml`) be added without touching the base
+    file or the discovery code path.
+    """
+    base = config_dir / "seed_topics.yaml"
+    merged: dict = {"topics": [], "anchor_expos": [], "anchor_organizations": []}
+    if base.exists():
+        loaded = yaml.safe_load(base.read_text(encoding="utf-8")) or {}
+        merged["topics"].extend(loaded.get("topics") or [])
+        merged["anchor_expos"].extend(loaded.get("anchor_expos") or [])
+        merged["anchor_organizations"].extend(
+            loaded.get("anchor_organizations") or []
+        )
+
+    # Companion packs: seed_topics_*.yaml — sorted for deterministic order.
+    for pack in sorted(config_dir.glob("seed_topics_*.yaml")):
+        try:
+            data = yaml.safe_load(pack.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        merged["topics"].extend(data.get("topics") or [])
+        merged["anchor_expos"].extend(data.get("anchor_expos") or [])
+        merged["anchor_organizations"].extend(
+            data.get("anchor_organizations") or []
+        )
+    return merged
 
 
 @lru_cache(maxsize=1)

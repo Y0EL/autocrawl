@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import signal
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from crawler.observability.logger import get_logger
@@ -147,6 +149,58 @@ async def _run_preflight(seeds: list[Any]) -> tuple[list[Any], dict[str, int]]:
     return kept, dropped
 
 
+async def _filter_dead_yaml_seeds(seeds: list[Any]) -> tuple[list[Any], dict[str, Any]]:
+    """Drop YAML seeds with N+ recent `empty_result` lessons. Curiosity bypass
+    lets a small fraction retry in case the page got fixed since last attempt.
+
+    Without this, hourly passes burn ~3 minutes per seed on permanently broken
+    pages (UMEX-style JS-only exhibitor lists with no extractable structure).
+    Quarantine emerges from the strike-window itself: stop trying for the
+    window duration → strikes age out → seed re-eligible naturally.
+    """
+    s = get_agentic_settings()
+    if s.dead_seed_strikes <= 0:
+        return seeds, {"dropped": 0, "quarantined": []}
+    try:
+        from .lessons import load_failure_lessons
+    except ImportError:
+        return seeds, {"dropped": 0, "quarantined": []}
+    try:
+        # Convert hours to days (rounded up) since loader works in days.
+        lookback_days = max(1, (s.dead_seed_recent_window_hours + 23) // 24)
+        failures = await load_failure_lessons(s.lessons_dir, lookback_days=lookback_days)
+    except Exception as e:  # noqa: BLE001
+        _log.debug("agentic.dead_seed_load_failed", error=str(e)[:160])
+        return seeds, {"dropped": 0, "quarantined": []}
+    if not failures:
+        return seeds, {"dropped": 0, "quarantined": []}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=s.dead_seed_recent_window_hours)
+    strikes_by_seed: dict[str, int] = defaultdict(int)
+    for f in failures:
+        if f.category != "empty_result":
+            continue
+        if not f.expo_name or f.archived_at < cutoff:
+            continue
+        strikes_by_seed[f.expo_name.strip().lower()] += 1
+
+    kept: list[Any] = []
+    quarantined: list[str] = []
+    bypassed: list[str] = []
+    for seed in seeds:
+        key = (getattr(seed, "name", "") or "").strip().lower()
+        n = strikes_by_seed.get(key, 0)
+        if n < s.dead_seed_strikes:
+            kept.append(seed)
+            continue
+        if random.random() < s.dead_seed_curiosity:
+            kept.append(seed)
+            bypassed.append(seed.name)
+            continue
+        quarantined.append(seed.name)
+    return kept, {"dropped": len(quarantined), "quarantined": quarantined, "bypassed": bypassed}
+
+
 async def _seed_blacklist_from_lessons() -> None:
     """Replay recent failure lessons into the blacklist. Lets the scheduler
     self-rebuild domain priors after a knowledge.json wipe — the lesson
@@ -252,6 +306,22 @@ async def _run_one_pass(event: asyncio.Event) -> None:
             _log.info("agentic.scheduler_all_seeds_other_shards")
             return
 
+    # Dead-seed quarantine — drop YAML seeds that have N+ `empty_result`
+    # lessons in the recent window. UMEX-style permanently broken pages
+    # otherwise burn ~3 min/pass forever. Curiosity bypass keeps the door
+    # open in case the page structure was fixed.
+    seeds, dead_info = await _filter_dead_yaml_seeds(seeds)
+    if dead_info["dropped"] or dead_info.get("bypassed"):
+        _log.info(
+            "agentic.scheduler_dead_seeds_filtered",
+            dropped=dead_info["dropped"],
+            quarantined=dead_info["quarantined"][:10],
+            bypassed=dead_info.get("bypassed", []),
+        )
+    if not seeds:
+        _log.info("agentic.scheduler_all_seeds_quarantined")
+        return
+
     # Preflight HEAD probe — only enforced for seeds tagged `discovery`. Drops
     # 404s, non-HTML, sub-threshold pages before they hit the agent loop. Mode
     # A+B seeds pass through unchanged (preserves existing behavior).
@@ -302,7 +372,7 @@ async def _run_one_pass(event: asyncio.Event) -> None:
         )
         for counts in results:
             for k, v in counts.items():
-                totals[k] += v
+                totals[k] = totals.get(k, 0) + v
         _log.info("agentic.scheduler_pass_done", seeds=len(seeds), **totals)
     finally:
         await _release_lock()
@@ -377,6 +447,14 @@ async def run_forever() -> None:
     except Exception as e:  # noqa: BLE001
         _log.debug("agentic.boot_reset_failed", error=str(e)[:160])
 
+    # Phase 5 — 24h watchdog. Browser-Use 0.12.6 CDP cascade silently
+    # degrades chromium stability after ~4-12h sustained run. Self-exit
+    # at this hour mark forces docker `restart: unless-stopped` to spawn
+    # a fresh process tree. Disabled if self_restart_hours <= 0.
+    import time as _time
+    self_restart_seconds = max(0.0, s.self_restart_hours) * 3600
+    boot_ts = _time.time()
+
     while not event.is_set():
         try:
             await _run_one_pass(event)
@@ -390,6 +468,17 @@ async def run_forever() -> None:
             event.set()
             break
 
+        # 24h watchdog — exit cleanly so docker restart-unless-stopped
+        # respawns a fresh container with new chromium subprocess tree.
+        if self_restart_seconds > 0 and (_time.time() - boot_ts) >= self_restart_seconds:
+            _log.warning(
+                "agentic.scheduler_self_restart",
+                uptime_hours=round((_time.time() - boot_ts) / 3600, 2),
+                reason="cdp_cascade_prevention",
+            )
+            event.set()
+            break
+
         # Interruptible sleep — SIGTERM during the inter-pass pause exits fast.
         try:
             await asyncio.wait_for(event.wait(), timeout=interval)
@@ -399,3 +488,7 @@ async def run_forever() -> None:
     await _release_lock()
     await _clear_remote_stop_flag()
     _log.info("agentic.scheduler_stopped")
+    # Exit code 0 is treated as graceful by docker compose; combined with
+    # `restart: unless-stopped` the container respawns within seconds.
+    import sys as _sys
+    _sys.exit(0)

@@ -89,36 +89,46 @@ function onCancel() {
 
 <template>
   <Teleport to="body">
+    <!-- Modal scrim: theme-neutral darken, no glass blur (decorative).
+         The destructive affordance comes from the crit border, accent-strong typography,
+         and forced countdown wait, not from a glass-mortified background. -->
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-base-950/70 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      style="background: rgb(0 0 0 / 0.40);"
       @click.self="onCancel"
     >
       <div
-        class="hud-panel w-full max-w-md border-base-300 bg-white shadow-hud-strong dark:border-base-700 dark:bg-base-900"
+        class="card w-full max-w-md overflow-hidden"
+        :class="tone === 'danger' ? 'is-danger' : 'card-glow'"
       >
-        <header class="hud-panel-head">
+        <header class="card-head">
           <div class="flex items-center gap-2">
-            <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">!!</span>
-            <h2 class="hud-panel-title">{{ title }}</h2>
+            <!-- Status dot: crit for danger, amber for accent. No decorative dot-glow ring. -->
+            <span class="dot" :class="tone === 'danger' ? 'dot-crit pulse-amber' : 'dot-amber pulse-amber'"></span>
+            <span class="label" :class="tone === 'danger' ? 'text-crit' : 'label-amber'">{{ title }}</span>
           </div>
+          <span class="num-display text-[11px] tracking-[0.18em] text-ink-mute font-bold">!!</span>
         </header>
-        <div class="hud-panel-body">
-          <p class="text-sm text-base-700 dark:text-base-200" style="white-space: pre-line">{{ body }}</p>
-          <div class="mt-4 flex justify-end gap-2">
-            <button class="hud-btn hud-btn-ghost" type="button" @click="onCancel">
+        <div class="card-body">
+          <p class="text-[13px] text-ink leading-relaxed" style="white-space: pre-line">{{ body }}</p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button class="btn btn-ghost h-9" type="button" @click="onCancel">
+              <FaIcon :icon="['fas', 'xmark']" class="text-[10px]" />
               {{ cancelLabel }}
             </button>
             <button
               :class="[
-                'hud-btn',
-                tone === 'danger' ? 'hud-btn-danger' : 'hud-btn-primary',
-                !ready ? 'opacity-60 cursor-not-allowed' : '',
+                'btn h-9',
+                tone === 'danger' ? 'btn-danger' : 'btn-amber',
+                !ready ? 'opacity-50 cursor-not-allowed' : '',
               ]"
               type="button"
               :disabled="!ready"
               @click="onConfirm"
             >
+              <FaIcon v-if="!ready" :icon="['fas', 'circle-notch']" class="animate-spin text-[10px]" />
+              <FaIcon v-else :icon="['fas', 'check']" class="text-[10px]" />
               {{ buttonLabel }}
             </button>
           </div>
@@ -127,3 +137,15 @@ function onCancel() {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+/* Danger affordance: crit border at strong alpha plus the shadow scale (no neon glow).
+   Reads as "this action is dangerous" through saturation of the border, the countdown
+   gate, and the danger-toned button, not through a glow halo. */
+.is-danger {
+  border-color: rgb(var(--crit) / 0.50);
+  box-shadow:
+    0 0 0 1px rgb(var(--crit) / 0.30),
+    var(--shadow-card-hover);
+}
+</style>

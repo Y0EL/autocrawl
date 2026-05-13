@@ -31,7 +31,7 @@ const option = computed(() => ({
     ...tooltipDefaults(isDark.value),
     trigger: 'item',
     formatter: (p: { name: string; value: number; percent: number }) =>
-      `<span style="font-family:JetBrains Mono Variable,monospace">${p.name.toUpperCase()}: <b>${p.value}</b> (${p.percent}%)</span>`,
+      `<span style="font-family:Geist Mono Variable,monospace">${p.name.toUpperCase()}: <b>${p.value}</b> (${p.percent}%)</span>`,
   },
   legend: {
     orient: 'vertical',
@@ -43,7 +43,7 @@ const option = computed(() => ({
     itemGap: 10,
     textStyle: {
       color: isDark.value ? tactical.text.secondary.dark : tactical.text.secondary.light,
-      fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+      fontFamily: '"Geist Mono Variable", "Geist Mono", monospace',
       fontSize: 10,
     },
     formatter: (name: string) => (labelMap[name] ?? name).toUpperCase(),
@@ -55,14 +55,14 @@ const option = computed(() => ({
       radius: ['58%', '82%'],
       center: ['38%', '50%'],
       itemStyle: {
-        borderColor: isDark.value ? '#0E1218' : '#FFFFFF',
+        borderColor: isDark.value ? '#0A1525' : '#F4EFE6',
         borderWidth: 2,
       },
       label: {
         show: true,
         position: 'inside',
-        color: '#0E1218',
-        fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+        color: isDark.value ? '#0A1525' : '#141210',
+        fontFamily: '"Geist Mono Variable", "Geist Mono", monospace',
         fontSize: 10,
         fontWeight: 600,
         formatter: '{d}%',

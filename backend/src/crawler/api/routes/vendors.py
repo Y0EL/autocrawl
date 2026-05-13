@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db.repositories import vendor_repo
+from ...db.repositories import vendor_email_draft_repo, vendor_repo
 from ...observability.logger import get_logger
 from ..deps import get_db
 
@@ -78,6 +80,41 @@ async def deepen_vendor(vendor_id: str, session: AsyncSession = Depends(get_db))
     }
 
 
+@router.post("/{vendor_id}/deepen-products", status_code=202)
+async def deepen_vendor_products(
+    vendor_id: str, session: AsyncSession = Depends(get_db)
+) -> dict:
+    """Phase 5 — enqueue this vendor for product-catalog enrichment.
+    Idempotent (queue claim guard prevents duplicate work)."""
+    orm = await vendor_repo.get_by_vendor_id(session, vendor_id)
+    if orm is None:
+        orm = await vendor_repo.get_by_domain(session, vendor_id)
+    if orm is None:
+        raise HTTPException(status_code=404, detail=f"Vendor {vendor_id} not found")
+
+    try:
+        from agentic_crawler import product_backfill_queue
+
+        entry_id = await product_backfill_queue.publish_vendor(
+            orm.vendor_id, source="operator_deepen"
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"Backfill queue unavailable: {str(e)[:120]}",
+        )
+    if entry_id is None:
+        raise HTTPException(
+            status_code=503, detail="Backfill queue unreachable",
+        )
+    return {
+        "status": "queued",
+        "vendor_id": orm.vendor_id,
+        "queue_entry_id": entry_id,
+        "has_legacy_products": bool(orm.products),
+    }
+
+
 async def _deepen_task(snapshot: dict) -> None:
     """Run resolve (if needed) + enrich + persist for one vendor row."""
     try:
@@ -135,3 +172,193 @@ async def _deepen_task(snapshot: dict) -> None:
         )
     except Exception as e:  # noqa: BLE001
         _log.warning("vendors.deepen_failed", vendor_id=snapshot.get("vendor_id"), error=str(e)[:200])
+
+
+# ---------------------------------------------------------------------- #
+# Email draft - industrial outreach invitation                            #
+# ---------------------------------------------------------------------- #
+
+Language = Literal["en", "id"]
+
+
+class _DraftRequest(BaseModel):
+    language: Language = Field(default="en")
+    our_context: str | None = Field(
+        default=None,
+        description="Optional override for the operator's project blurb. "
+                    "Default uses a sensible industrial-consortium intro.",
+    )
+
+
+class _DraftEditRequest(BaseModel):
+    subject: str = Field(..., max_length=500)
+    body: str = Field(..., min_length=1)
+
+
+async def _resolve_vendor_orm(session: AsyncSession, vendor_id: str):
+    orm = await vendor_repo.get_by_vendor_id(session, vendor_id)
+    if orm is None:
+        orm = await vendor_repo.get_by_domain(session, vendor_id)
+    if orm is None:
+        raise HTTPException(status_code=404, detail=f"Vendor {vendor_id} not found")
+    return orm
+
+
+@router.get("/{vendor_id}/email-draft")
+async def get_email_draft(
+    vendor_id: str,
+    language: Language = Query("en"),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return the saved draft (if any) for this vendor + language.
+
+    Returns 200 with a draft payload, or 200 with `{exists: false}` when
+    nothing has been generated yet. Lets the frontend skip a 404 round-trip.
+    """
+    orm_vendor = await _resolve_vendor_orm(session, vendor_id)
+    draft = await vendor_email_draft_repo.get_draft(
+        session, vendor_id=orm_vendor.vendor_id, language=language
+    )
+    if draft is None:
+        return {"exists": False, "vendor_id": orm_vendor.vendor_id, "language": language}
+    return {"exists": True, **vendor_email_draft_repo.orm_to_dict(draft)}
+
+
+@router.get("/{vendor_id}/email-drafts")
+async def list_email_drafts(
+    vendor_id: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """List all saved drafts for this vendor across all languages."""
+    orm_vendor = await _resolve_vendor_orm(session, vendor_id)
+    drafts = await vendor_email_draft_repo.list_for_vendor(
+        session, vendor_id=orm_vendor.vendor_id
+    )
+    return {
+        "vendor_id": orm_vendor.vendor_id,
+        "items": [vendor_email_draft_repo.orm_to_dict(d) for d in drafts],
+    }
+
+
+@router.post("/{vendor_id}/email-draft/generate")
+async def generate_email_draft(
+    vendor_id: str,
+    payload: _DraftRequest = Body(default_factory=_DraftRequest),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Generate (or regenerate) an industrial-invitation email draft via
+    the LLM agent and persist it. Replaces any existing draft for the
+    same (vendor_id, language). Returns the saved draft."""
+    from ...agents import vendor_outreach
+    from ...config import get_settings
+
+    orm_vendor = await _resolve_vendor_orm(session, vendor_id)
+    snapshot = vendor_repo.orm_to_dict(orm_vendor)
+
+    try:
+        result = await vendor_outreach.draft_vendor_email(
+            vendor=snapshot,
+            language=payload.language,
+            our_context=payload.our_context,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM draft generation failed: {str(e)[:160]}",
+        )
+
+    settings = get_settings()
+    model_used = (
+        settings.openai_model_heavy
+        if hasattr(settings, "openai_model_heavy")
+        else None
+    )
+
+    saved = await vendor_email_draft_repo.upsert(
+        session,
+        vendor_id=orm_vendor.vendor_id,
+        language=payload.language,
+        subject=result.subject,
+        body=result.body,
+        model_used=model_used,
+        edited_manually=False,
+    )
+    await session.commit()
+    return vendor_email_draft_repo.orm_to_dict(saved)
+
+
+@router.put("/{vendor_id}/email-draft")
+async def save_email_draft_manual(
+    vendor_id: str,
+    payload: _DraftEditRequest,
+    language: Language = Query("en"),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Persist operator's manual edits to an existing draft (or create
+    fresh from scratch). Marks ``edited_manually=true`` so the UI can
+    show a "manually edited" indicator."""
+    orm_vendor = await _resolve_vendor_orm(session, vendor_id)
+    saved = await vendor_email_draft_repo.upsert(
+        session,
+        vendor_id=orm_vendor.vendor_id,
+        language=language,
+        subject=payload.subject,
+        body=payload.body,
+        model_used=None,
+        edited_manually=True,
+    )
+    await session.commit()
+    return vendor_email_draft_repo.orm_to_dict(saved)
+
+
+# ---------------------------------------------------------------------- #
+# Dossier content - structured payload for frontend pdf-lib renderer      #
+# ---------------------------------------------------------------------- #
+
+
+@router.post("/{vendor_id}/dossier-content")
+async def generate_dossier_content_endpoint(
+    vendor_id: str,
+    language: Language = Query("id"),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Generate structured content for the vendor PDF dossier.
+
+    Returns: title, subtitle, overview, sections[], pros_cons, mermaid_diagram,
+    closing_note. The frontend assembles this into the actual PDF using
+    pdf-lib + mermaid.
+
+    No DB persistence — this is a stateless generation endpoint, called
+    on-demand when the operator clicks "Download Vendor PDF". Cheap to
+    re-run; no need to cache.
+    """
+    from ...agents import vendor_outreach
+
+    orm_vendor = await _resolve_vendor_orm(session, vendor_id)
+    snapshot = vendor_repo.orm_to_dict(orm_vendor)
+
+    try:
+        content = await vendor_outreach.generate_dossier_content(
+            vendor=snapshot,
+            language=language,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM dossier generation failed: {str(e)[:160]}",
+        )
+
+    return {
+        "vendor_id": orm_vendor.vendor_id,
+        "language": language,
+        "content": content.model_dump(),
+        "vendor_meta": {
+            "company_name": snapshot.get("company_name"),
+            "domain": snapshot.get("domain"),
+            "country": snapshot.get("registrar_country"),
+            "industries": snapshot.get("industries") or [],
+            "domain_of_interest": snapshot.get("domain_of_interest") or [],
+            "overall_scope_score": snapshot.get("overall_scope_score"),
+            "products_detailed": snapshot.get("products_detailed") or [],
+        },
+    }

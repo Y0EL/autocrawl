@@ -8,10 +8,11 @@ const props = defineProps<{
 
 const pct = computed(() => Math.max(0, Math.min(100, Math.round(props.score * 100))))
 
+// Tone returns a CSS var reference so the bar follows the theme.
 const tone = computed(() => {
-  if (pct.value >= 75) return '#22C55E'
-  if (pct.value >= 40) return '#FFB800'
-  return '#EF4444'
+  if (pct.value >= 75) return 'rgb(var(--ok))'
+  if (pct.value >= 40) return 'rgb(var(--amber))'
+  return 'rgb(var(--crit))'
 })
 
 const segments = computed(() => {

@@ -37,7 +37,7 @@ async def stats_industries(session: AsyncSession = Depends(get_db)) -> list[dict
 
 @router.get("/stats/countries")
 async def stats_countries(
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=500),
     session: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     return await vendor_repo.country_breakdown(session, limit=limit)
@@ -60,6 +60,15 @@ async def stats_expo_country_detail(
 ) -> dict:
     """Detail breakdown for one country (drives the world-map side panel)."""
     return await expo_repo.country_detail(session, country=country)
+
+
+@router.get("/stats/country-arcs")
+async def stats_country_arcs(
+    limit: int = Query(80, ge=1, le=500),
+    session: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Country-pair edges (expo country -> vendor country) for arc map."""
+    return await expo_repo.country_arcs(session, limit=limit)
 
 
 @router.get("/stats/timeline")

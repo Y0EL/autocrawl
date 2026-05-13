@@ -18,58 +18,66 @@ const sourceVendors = computed(() =>
 )
 
 const confidencePct = computed(() => Math.round(props.suggestion.confidence * 100))
+
+const confidenceTone = computed(() => {
+  if (confidencePct.value >= 75) return 'ok'
+  if (confidencePct.value >= 50) return 'amber'
+  return 'warn'
+})
 </script>
 
 <template>
-  <div class="hud-panel flex flex-col">
-    <header class="hud-panel-head">
-      <div class="flex items-center gap-2">
-        <span class="font-mono text-2xs uppercase tracking-ops text-base-400 dark:text-base-500">
-          IDE
-        </span>
-        <h3 class="hud-panel-title">{{ suggestion.product_name }}</h3>
+  <article class="card overflow-hidden flex flex-col">
+    <header class="card-head">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="num-display text-[10px] tracking-[0.18em] text-ink-mute font-bold">IDE</span>
+        <h3 class="text-[14px] font-semibold text-ink truncate">{{ suggestion.product_name }}</h3>
       </div>
-      <span class="hud-pill hud-pill-info">
+      <span class="pill" :class="`pill-${confidenceTone}`">
         {{ confidencePct }}%
       </span>
     </header>
-    <div class="hud-panel-body space-y-3">
-      <p v-if="suggestion.tagline" class="font-mono text-sm text-base-700 dark:text-base-200">
-        {{ suggestion.tagline }}
+
+    <div class="card-body flex-1 space-y-3">
+      <p v-if="suggestion.tagline" class="text-[13px] text-ink leading-snug italic">
+        "{{ suggestion.tagline }}"
       </p>
 
       <div class="flex flex-wrap items-center gap-1.5">
         <span
           v-for="v in sourceVendors"
           :key="v.vendor_id"
-          class="flex items-center gap-1 border border-base-200 bg-base-50 px-1.5 py-0.5 font-mono text-2xs text-base-700 dark:border-base-700 dark:bg-base-800 dark:text-base-200"
+          class="flex items-center gap-1.5 px-2 py-0.5 rounded-[3px] bg-surface-2 border border-rule text-[11px] text-ink-2"
         >
-          <span v-if="v.logo_url" class="h-3 w-3 overflow-hidden">
+          <span v-if="v.logo_url" class="h-3 w-3 overflow-hidden rounded-[1px] shrink-0">
             <img :src="v.logo_url" :alt="v.company_name" class="h-full w-full object-contain" referrerpolicy="no-referrer">
           </span>
-          {{ v.company_name }}
+          <span class="truncate max-w-[120px]">{{ v.company_name }}</span>
         </span>
         <span
           v-for="missingId in suggestion.source_vendor_ids.filter((id) => !vendorMap.get(id))"
           :key="missingId"
-          class="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 font-mono text-2xs text-warn-700 dark:border-warn-800 dark:bg-warn-900/30 dark:text-warn-300"
+          class="px-1.5 py-0.5 rounded-[3px] border text-[10.5px]"
+          style="border-color: rgb(var(--warn) / 0.5); color: rgb(var(--warn))"
         >
           ? {{ missingId.slice(0, 6) }}
         </span>
       </div>
 
-      <p class="font-mono text-2xs text-base-500 dark:text-base-400" style="white-space: pre-line">
+      <p class="text-[12px] text-ink-mute leading-relaxed" style="white-space: pre-line">
         {{ suggestion.rationale }}
       </p>
     </div>
-    <footer class="border-t border-base-200 px-3 py-2 dark:border-base-700">
+
+    <footer class="rule-t p-3">
       <button
-        class="hud-btn hud-btn-primary w-full"
+        class="btn btn-amber w-full h-9"
         type="button"
         @click="emit('use-suggestion', suggestion.source_vendor_ids)"
       >
+        <FaIcon :icon="['fas', 'wand-magic-sparkles']" class="text-[10px]" />
         Pakai Saran Ini
       </button>
     </footer>
-  </div>
+  </article>
 </template>

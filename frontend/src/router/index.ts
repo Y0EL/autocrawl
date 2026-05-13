@@ -61,6 +61,18 @@ const router = createRouter({
       component: () => import('@/views/LabsPage.vue'),
     },
     {
+      path: '/pemantauan',
+      name: 'pemantauan',
+      component: () => import('@/views/LiveMonitorPage.vue'),
+    },
+    {
+      path: '/pemantauan/single/:port',
+      name: 'pemantauan-single',
+      component: () => import('@/views/LiveMonitorSinglePage.vue'),
+      props: true,
+      meta: { bare: true },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundPage.vue'),

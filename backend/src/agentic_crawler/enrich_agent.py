@@ -120,8 +120,13 @@ def _system_prompt_for_task(task: EnrichTask, few_shot_block: str) -> str:
         f'"phone":"","email":"","description":"","scope":[],'
         f'"completeness_score":0.0,"bail_reason":null}}\n'
         f"null = unknown (don't invent). bail_reason ∈ "
-        f"{{null, formality, 404, captcha, image_only}}. completeness_score 0-1.\n"
-        f"Anti-loop: max 25 steps; same goal twice → emit done.\n\n"
+        f"{{null, formality, 404, captcha, image_only, wrong_domain}}. completeness_score 0-1.\n"
+        f"ANTI-LOOP RULES (HARD):\n"
+        f"  1. If `extract` returns 'no match' or empty 2× in a row → STOP, emit done with what you have.\n"
+        f"  2. If you've called the SAME tool with the SAME query 2× → STOP, emit done.\n"
+        f"  3. If page is a press-release distributor (einpresswire, prnewswire, businesswire, prweb, newswire, openpr, issuewire) → STOP IMMEDIATELY with bail_reason='wrong_domain'. These are NEVER the vendor.\n"
+        f"  4. If page is a directory/aggregator (alibaba, indiamart, kompass, linkedin, etc.) → STOP with bail_reason='wrong_domain'.\n"
+        f"  5. If domain has no token from vendor name → STOP with bail_reason='wrong_domain' rather than scrape garbage.\n\n"
         f"{few_shot_block}".strip()
     )
 
@@ -526,6 +531,13 @@ async def run_enrich_for_task(
         "llm_timeout": 600,
         "step_timeout": 720,
     }
+    # CRITICAL: explicit initial navigation. Browser-Use's `directly_open_url`
+    # auto-extract from task text is unreliable — many runs end up stuck on
+    # about:blank. Force navigate as initial action when we have a hint URL.
+    if task.hint_url:
+        agent_kwargs["initial_actions"] = [
+            {"navigate": {"url": task.hint_url, "new_tab": False}}
+        ]
 
     # Same controller the listing pool uses — `dismiss_overlays`,
     # `scroll_until_loaded`, `extract_by_selector`, `search_vendor`.
