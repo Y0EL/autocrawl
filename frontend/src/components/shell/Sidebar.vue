@@ -2,8 +2,17 @@
 import { computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { useQuery } from '@tanstack/vue-query'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { api } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
+
+const router = useRouter()
+const auth = useAuthStore()
+
+function handleLogout() {
+  auth.logout()
+  router.replace('/login')
+}
 
 interface NavItem {
   to: string
@@ -132,8 +141,36 @@ function fmt(n: number | null | undefined): string {
 
     <div class="flex-1"></div>
 
+    <!-- Operator session foot — username + logout. Compact rail tile, gak
+         pakai card; rule-top sebagai separator dari nav. -->
+    <div class="rule-t mx-2"></div>
+    <button
+      v-if="auth.isAuthenticated"
+      type="button"
+      class="group flex h-9 w-full items-center transition-colors hover:bg-surface-2/50"
+      :class="collapsed ? 'justify-center' : 'gap-3 px-4'"
+      :title="collapsed ? `Keluar (${auth.user})` : 'Keluar dari console'"
+      @click="handleLogout"
+    >
+      <FaIcon
+        :icon="['fas', 'right-from-bracket']"
+        class="text-[12px] text-ink-mute group-hover:text-amber transition-colors"
+      />
+      <template v-if="!collapsed">
+        <span class="flex-1 text-left">
+          <span class="block text-[10.5px] uppercase tracking-[0.12em] text-ink-mute leading-tight">
+            Operator
+          </span>
+          <span class="block text-[12px] font-medium text-ink leading-tight">
+            {{ auth.user }}
+          </span>
+        </span>
+        <span class="label label-mute group-hover:text-amber transition-colors">Keluar</span>
+      </template>
+    </button>
+
     <!-- Collapse toggle - subtle, no text in collapsed state -->
-    <div class="rule-t mx-2 mb-2"></div>
+    <div class="rule-t mx-2"></div>
     <button
       type="button"
       class="flex h-9 w-full items-center transition-colors hover:bg-surface-2/50 mb-1"

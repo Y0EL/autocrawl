@@ -382,10 +382,27 @@
   }
 
   /* ============================================================== */
-  /* CURSOR GOLD TAIL — fixed pointer-following dot + soft halo.    */
-  /* Driven by useCursorLight composable updating --mx / --my on    */
-  /* :root. Hidden on touch / coarse pointer (no cursor anyway).    */
+  /* CUSTOM CURSOR — editorial ring + inner dot.                     */
+  /* Hide default cursor on devices with fine pointer; let cursor    */
+  /* re-appear on text inputs / textareas where caret affordance     */
+  /* matters. Outer ring snaps slow (smooth trail), inner dot snaps  */
+  /* fast (precise pointer). On hover over interactive surfaces, the */
+  /* ring expands and tints gold; dot fades to indicate "armed".     */
+  /* Driven by useCursorLight composable -> --mx / --my on :root.    */
   /* ============================================================== */
+  @media (hover: hover) and (pointer: fine) {
+    /* Nuclear hide -- component-level .btn { cursor: pointer } akan kalah,
+       cursor OS benar-benar hilang di mana saja. !important defensible
+       di sini karena custom cursor menggantikan affordance secara global. */
+    *, *::before, *::after { cursor: none !important; }
+    /* Text caret tetap muncul di field input -- accessibility:
+       operator perlu tahu posisi caret saat mengetik. */
+    input[type="text"], input[type="password"], input[type="email"],
+    input[type="search"], input[type="number"], input[type="tel"],
+    input[type="url"], textarea, [contenteditable="true"],
+    [contenteditable=""] { cursor: text !important; }
+  }
+
   .cursor-dot,
   .cursor-halo {
     position: fixed;
@@ -397,32 +414,68 @@
     will-change: transform;
     transform: translate3d(calc(var(--mx, 0px) - 50%), calc(var(--my, 0px) - 50%), 0);
   }
+
+  /* Inner pinpoint — snaps fast, the precise pointer */
   .cursor-dot {
-    width: 8px;
-    height: 8px;
+    width: 5px;
+    height: 5px;
     background: rgb(var(--accent));
     box-shadow:
-      0 0 8px rgb(var(--accent) / 0.85),
-      0 0 18px rgb(var(--accent) / 0.55);
-    transition: transform 60ms linear, opacity 200ms var(--ease-out);
-    mix-blend-mode: normal;
+      0 0 0 1px rgb(var(--bg) / 0.65),
+      0 0 6px rgb(var(--accent) / 0.75);
+    transition: transform 30ms linear,
+                opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+                width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                height 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
+
+  /* Outer ring — lags slightly, gives the trail */
   .cursor-halo {
-    width: 56px;
-    height: 56px;
-    background: radial-gradient(50% 50% at 50% 50%, rgb(var(--accent) / 0.55) 0%, rgb(var(--accent) / 0.18) 45%, transparent 70%);
-    filter: blur(12px);
-    transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 200ms var(--ease-out);
-    opacity: 0.9;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: 1px solid rgb(var(--ink-mute) / 0.55);
+    box-shadow: 0 0 0 1px rgb(var(--bg) / 0.35);
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                width   240ms cubic-bezier(0.22, 1, 0.36, 1),
+                height  240ms cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+                background-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity: 1;
   }
+
+  /* "Armed" state -- hovering over button / link / input */
+  body[data-cursor-hover="true"] .cursor-halo {
+    width: 40px;
+    height: 40px;
+    border-color: rgb(var(--accent) / 0.85);
+    background: rgb(var(--accent) / 0.06);
+  }
+  body[data-cursor-hover="true"] .cursor-dot {
+    width: 3px;
+    height: 3px;
+    opacity: 0.85;
+  }
+
+  /* "Mousedown / clicking" state -- ring snaps small */
+  body[data-cursor-down="true"] .cursor-halo {
+    width: 20px;
+    height: 20px;
+    background: rgb(var(--accent) / 0.18);
+    border-color: rgb(var(--accent));
+  }
+
   body[data-cursor-active="false"] .cursor-dot,
   body[data-cursor-active="false"] .cursor-halo { opacity: 0; }
 
   @media (pointer: coarse), (hover: none) {
     .cursor-dot, .cursor-halo { display: none; }
+    html, body, body * { cursor: auto; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .cursor-dot, .cursor-halo { transition: none; }
+    .cursor-dot, .cursor-halo { transition: opacity 200ms ease; }
   }
 
   @media (prefers-reduced-motion: reduce) {

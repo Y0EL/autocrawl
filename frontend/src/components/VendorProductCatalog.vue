@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import type { Vendor, Product } from '@/api/types'
+import TagBadge from './TagBadge.vue'
 
 /**
  * Vendor Product Catalog — refined-cinematic register, magazine spread.
@@ -39,7 +40,7 @@ function scoreTone(score: number): 'crit' | 'amber' | 'ok' {
 }
 function toneLabel(score: number): string {
   const t = scoreTone(score)
-  return t === 'ok' ? 'Prime' : t === 'amber' ? 'Sebagian' : 'Rendah'
+  return t === 'ok' ? '' : t === 'amber' ? 'Sebagian' : 'Rendah'
 }
 
 function initials(name: string): string {
@@ -135,7 +136,7 @@ function tiltStyle(idx: number) {
             <span class="num">{{ overallPct }}</span>
             <span class="cat-fit__unit">%</span>
           </div>
-          <span class="cat-fit__label">{{ toneLabel(overallScore) }} &middot; {{ detailed.length }} produk dianalisis</span>
+          <span class="cat-fit__label"><template v-if="toneLabel(overallScore)">{{ toneLabel(overallScore) }} &middot; </template>{{ detailed.length }} produk dianalisis</span>
         </div>
         <div v-else class="cat-fit cat-fit--empty">
           <span class="eyebrow">// VENDOR FIT</span>
@@ -154,7 +155,7 @@ function tiltStyle(idx: number) {
             Ringkasan fokus belum disusun. Jalankan deepen agar entri ini diisi.
           </p>
           <div v-if="doiTags.length" class="cat-tags">
-            <span v-for="tag in doiTags" :key="tag" class="cat-tag">{{ tag }}</span>
+            <TagBadge v-for="tag in doiTags" :key="tag" :raw="tag" size="sm" variant="outline" />
           </div>
         </div>
       </div>
@@ -218,7 +219,7 @@ function tiltStyle(idx: number) {
 
         <!-- Footer chips -->
         <footer class="cat-card__foot">
-          <span class="cat-foot__chip cat-foot__chip--label">{{ toneLabel(p.scope_match_score) }}</span>
+          <span v-if="toneLabel(p.scope_match_score)" class="cat-foot__chip cat-foot__chip--label">{{ toneLabel(p.scope_match_score) }}</span>
           <span v-if="p.pros.length" class="cat-foot__chip cat-foot__chip--pro">
             <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 1v10M1 6h10" />
@@ -341,7 +342,7 @@ function tiltStyle(idx: number) {
                     <div class="cat-sheet__ring-num">
                       <span class="num">{{ pct(activeProduct.scope_match_score) }}</span>
                       <span class="cat-sheet__ring-unit">%</span>
-                      <span class="cat-sheet__ring-label">{{ toneLabel(activeProduct.scope_match_score) }}</span>
+                      <span v-if="toneLabel(activeProduct.scope_match_score)" class="cat-sheet__ring-label">{{ toneLabel(activeProduct.scope_match_score) }}</span>
                     </div>
                   </div>
                 </div>
@@ -418,7 +419,7 @@ function tiltStyle(idx: number) {
                 <div v-if="activeProduct.matched_topics.length" class="cat-sheet__topics">
                   <span class="eyebrow">// TOPIK COCOK</span>
                   <div class="cat-sheet__topic-chips">
-                    <span v-for="t in activeProduct.matched_topics" :key="t" class="cat-tag">{{ t }}</span>
+                    <TagBadge v-for="t in activeProduct.matched_topics" :key="t" :raw="t" size="sm" />
                   </div>
                 </div>
 

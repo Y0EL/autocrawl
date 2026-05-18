@@ -6,6 +6,7 @@ import { api } from '@/api/client'
 import type { Vendor } from '@/api/types'
 import PageHeader from '@/components/shell/PageHeader.vue'
 import GeoAvatar from '@/components/GeoAvatar.vue'
+import TagBadge from '@/components/TagBadge.vue'
 import { exportCsv } from '@/composables/useCsvExport'
 import { resolveCountry, flagEmoji } from '@/data/country_resolver'
 
@@ -224,13 +225,12 @@ const INDUSTRY_OPTIONS = [
             </td>
             <td>
               <div class="flex flex-wrap gap-1">
-                <span
+                <TagBadge
                   v-for="tag in row.industries.slice(0, 2)"
                   :key="tag"
-                  class="text-[10.5px] px-1.5 py-0.5 rounded-[3px] bg-surface-2 text-ink-2 border border-rule"
-                >
-                  {{ tag }}
-                </span>
+                  :raw="tag"
+                  size="xs"
+                />
                 <span v-if="row.industries.length > 2" class="text-[10px] text-ink-mute self-center">+{{ row.industries.length - 2 }}</span>
               </div>
             </td>

@@ -6,6 +6,7 @@ import { api } from '@/api/client'
 import AtlasMap from '@/components/atlas/AtlasMap.vue'
 import SystemHealthBoard from '@/components/atlas/SystemHealthBoard.vue'
 import LiveExhibitorFeed from '@/components/atlas/LiveExhibitorFeed.vue'
+import LiveActivityTicker from '@/components/atlas/LiveActivityTicker.vue'
 import IndustryDonut from '@/components/atlas/IndustryDonut.vue'
 import NowCrawling from '@/components/atlas/NowCrawling.vue'
 import TimelineArea from '@/components/atlas/TimelineArea.vue'
@@ -33,6 +34,55 @@ const overview = useQuery({
   queryKey: ['overview'],
   queryFn: () => api.overview(),
   refetchInterval: 15_000,
+})
+
+const health = useQuery({
+  queryKey: ['health-uptime'],
+  queryFn: () => api.health(),
+  refetchInterval: 30_000,
+})
+
+// Capture snapshot {uptime_seconds, fetchedAt} sehingga jam berdetik bisa
+// di-compute client-side tanpa request per detik.
+const uptimeAnchor = computed(() => {
+  const u = health.data.value?.uptime_seconds
+  if (u === null || u === undefined || !Number.isFinite(u)) return null
+  return { snapshotSec: u, anchorMs: Date.now() }
+})
+
+const nowTick = ref(Date.now())
+let uptimeTimer: ReturnType<typeof setInterval> | null = null
+
+const uptimeSeconds = computed(() => {
+  const a = uptimeAnchor.value
+  if (!a) return null
+  const drift = (nowTick.value - a.anchorMs) / 1000
+  return Math.max(0, Math.floor(a.snapshotSec + drift))
+})
+
+function pad2(n: number): string { return n < 10 ? `0${n}` : String(n) }
+
+const uptimeParts = computed(() => {
+  const s = uptimeSeconds.value
+  if (s === null) return null
+  const days = Math.floor(s / 86_400)
+  const hours = Math.floor((s % 86_400) / 3600)
+  const minutes = Math.floor((s % 3600) / 60)
+  const seconds = s % 60
+  return { days, hours, minutes, seconds }
+})
+
+const serviceSinceLabel = computed(() => {
+  const s = uptimeSeconds.value
+  if (s === null) return null
+  const since = new Date(Date.now() - s * 1000)
+  // dd.MM.yyyy HH:mm WIB-equivalent (browser local).
+  const dd = pad2(since.getDate())
+  const mo = pad2(since.getMonth() + 1)
+  const yr = since.getFullYear()
+  const hh = pad2(since.getHours())
+  const mi = pad2(since.getMinutes())
+  return `${dd}.${mo}.${yr} ${hh}:${mi}`
 })
 
 const activeRun = useQuery({
@@ -86,20 +136,6 @@ const liveRunId = computed(() => {
   return id ? id.slice(0, 8) : null
 })
 
-const liveVendorsEnriched = computed(() => {
-  const r = activeRun.data.value as Record<string, unknown> | null
-  return (r?.vendors_enriched as number | undefined)
-       ?? latestRun.value?.vendors_enriched
-       ?? null
-})
-
-const liveExhibitors = computed(() => {
-  const r = activeRun.data.value as Record<string, unknown> | null
-  return (r?.exhibitors_extracted as number | undefined)
-       ?? latestRun.value?.exhibitors_extracted
-       ?? null
-})
-
 // Sparkline derived from /stats/timeline
 const sparkline = computed(() => {
   const data = timeline.data.value ?? []
@@ -150,8 +186,12 @@ const tickerText = computed(() => {
 })
 onMounted(() => {
   tickerTimer = setInterval(() => { tickerIndex.value += 1 }, 4000)
+  uptimeTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
-onBeforeUnmount(() => { if (tickerTimer) clearInterval(tickerTimer) })
+onBeforeUnmount(() => {
+  if (tickerTimer) clearInterval(tickerTimer)
+  if (uptimeTimer) clearInterval(uptimeTimer)
+})
 
 function gotoVendors() { router.push('/vendors') }
 function gotoOrkestrator() { router.push('/orkestrator') }
@@ -234,34 +274,43 @@ function gotoRuns() { router.push('/runs') }
         </div>
       </div>
 
-      <!-- Z-axis Cascade — Live Run card, top-right with -2deg tilt -->
+      <!-- Z-axis Cascade — Uptime card, top-right with -2deg tilt.
+           Structural break dari grid 2-col lama: vertical hierarchy,
+           live ticking clock di num-display, heartbeat dot sebagai
+           "service alive" indicator. -->
       <div class="atlas-hero__card-run fade-up" style="animation-delay: 160ms">
         <div class="bezel">
-          <div class="bezel-core p-5">
-            <div class="flex items-center justify-between gap-3">
-              <span class="label label-mute">{{ isRunLive ? 'RUN LIVE' : 'RUN TERAKHIR' }}</span>
-              <span class="dot" :class="isRunLive ? 'dot-amber dot-glow' : 'dot-mute'" />
-            </div>
-            <div class="mt-3 flex items-baseline gap-2">
-              <span class="num text-ink" style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em">
-                #{{ liveRunId || '—' }}
+          <div class="bezel-core p-5 atlas-uptime">
+            <div class="atlas-uptime__head">
+              <span class="label label-mute">// UPTIME</span>
+              <span class="atlas-uptime__heartbeat" aria-hidden="true">
+                <span class="atlas-uptime__heartbeat-core" />
               </span>
-              <span class="pill" v-if="liveRunMode">{{ liveRunMode }}</span>
             </div>
-            <div class="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <div class="label label-mute">EXHIBITOR</div>
-                <div class="num text-ink mt-1" style="font-size: 22px; font-weight: 500">
-                  {{ formatNum(liveExhibitors) }}
-                </div>
-              </div>
-              <div>
-                <div class="label label-mute">DIPERKAYA</div>
-                <div class="num text-amber mt-1" style="font-size: 22px; font-weight: 600">
-                  {{ formatNum(liveVendorsEnriched) }}
-                </div>
-              </div>
+
+            <div v-if="uptimeParts" class="atlas-uptime__clock" aria-live="polite">
+              <span class="atlas-uptime__seg atlas-uptime__seg--days">
+                <span class="num">{{ uptimeParts.days }}</span>
+                <span class="atlas-uptime__seg-unit">h</span>
+              </span>
+              <span class="atlas-uptime__cmark">:</span>
+              <span class="num atlas-uptime__seg-time">{{ pad2(uptimeParts.hours) }}</span>
+              <span class="atlas-uptime__cmark">:</span>
+              <span class="num atlas-uptime__seg-time">{{ pad2(uptimeParts.minutes) }}</span>
+              <span class="atlas-uptime__cmark atlas-uptime__cmark--blink">:</span>
+              <span class="num atlas-uptime__seg-time atlas-uptime__seg-time--sec">{{ pad2(uptimeParts.seconds) }}</span>
             </div>
+            <div v-else class="atlas-uptime__clock atlas-uptime__clock--empty">
+              <span class="num">—</span>
+            </div>
+
+            <div class="atlas-uptime__caption">
+              <span class="label label-mute">Berjalan tanpa henti</span>
+              <span v-if="serviceSinceLabel" class="atlas-uptime__since">
+                sejak <span class="num">{{ serviceSinceLabel }}</span>
+              </span>
+            </div>
+
             <button class="btn btn-ghost btn-sm mt-4 w-full" @click="gotoOrkestrator">
               <span>Buka Orkestrator</span>
               <span class="btn-icon-nest">
@@ -323,6 +372,12 @@ function gotoRuns() { router.push('/runs') }
         </div>
       </div>
     </section>
+
+    <!-- ============================================================== -->
+    <!-- HORIZONTAL LIVE TICKER — newsprint-style strip, agentic crawler  -->
+    <!-- success/fail events, hairline-bordered, garnish bukan kompetisi  -->
+    <!-- ============================================================== -->
+    <LiveActivityTicker class="atlas-activity-ticker" />
 
     <!-- ============================================================== -->
     <!-- SECTION BREAK — scroll signal, no decorative empty space         -->
@@ -611,7 +666,7 @@ function gotoRuns() { router.push('/runs') }
   left: 32px;
   bottom: 88px;
   z-index: 5;
-  max-width: 62%;
+  max-width: 72%;
 }
 .atlas-hero__cinema-label { margin-bottom: 8px; }
 .atlas-hero__cinema-number {
@@ -625,7 +680,7 @@ function gotoRuns() { router.push('/runs') }
   font-weight: 700;
   font-size: clamp(5rem, 13vw, 13rem);
   line-height: 1.0;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.045em;
   color: rgb(var(--accent));
   background: linear-gradient(
     180deg,
@@ -639,6 +694,8 @@ function gotoRuns() { router.push('/runs') }
   text-shadow: 0 1px 0 rgb(255 255 255 / 0.06);
   display: inline-block;
   padding-block: 0.04em;
+  padding-inline: 0.06em 0.12em;
+  margin-inline: -0.06em -0.12em;
 }
 .atlas-hero__cinema-num[data-loading="true"] {
   background: none;
@@ -748,6 +805,135 @@ function gotoRuns() { router.push('/runs') }
   0%   { transform: translateY(0); opacity: 1; }
   60%  { transform: translateY(5px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
+}
+
+/* -------- UPTIME CARD — service-alive heartbeat -------- */
+.atlas-uptime {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.atlas-uptime__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Heartbeat: dual-ring vermilion pulse. Mengikuti DESIGN.md One Voice
+   rule (≤10% screen) -- dot itu sendiri 8px, ring expand ke ~22px tapi
+   transparent. Animation hardware-accelerated (transform + box-shadow). */
+.atlas-uptime__heartbeat {
+  position: relative;
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  align-items: center;
+  justify-content: center;
+}
+.atlas-uptime__heartbeat-core {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(var(--accent));
+  box-shadow:
+    0 0 0 0 rgb(var(--accent) / 0.55),
+    0 0 8px rgb(var(--accent) / 0.40);
+  animation: atlas-uptime-pulse 1400ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  will-change: transform, box-shadow;
+}
+@keyframes atlas-uptime-pulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0    rgb(var(--accent) / 0.55), 0 0 8px rgb(var(--accent) / 0.40); }
+  60%  { transform: scale(1.04); box-shadow: 0 0 0 8px  rgb(var(--accent) / 0),    0 0 4px rgb(var(--accent) / 0.25); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0    rgb(var(--accent) / 0),    0 0 8px rgb(var(--accent) / 0.40); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-uptime__heartbeat-core { animation: none; box-shadow: 0 0 6px rgb(var(--accent) / 0.40); }
+}
+
+/* Clock: hari di seg lebih besar, jam:menit:detik dalam num-display
+   tabular dengan letter-spacing dan slashed-zero. */
+.atlas-uptime__clock {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-feature-settings: 'tnum' on, 'zero' on, 'ss19' on;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.atlas-uptime__clock--empty { color: rgb(var(--ink-mute)); }
+.atlas-uptime__clock--empty .num { font-size: 28px; }
+
+.atlas-uptime__seg--days {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-right: 6px;
+  color: rgb(var(--accent));
+}
+.atlas-uptime__seg--days .num {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.atlas-uptime__seg-unit {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+  color: rgb(var(--accent));
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+}
+
+.atlas-uptime__seg-time {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: rgb(var(--ink));
+}
+.atlas-uptime__seg-time--sec { color: rgb(var(--ink-mute)); }
+
+.atlas-uptime__cmark {
+  font-size: 20px;
+  font-weight: 500;
+  color: rgb(var(--ink-mute));
+  opacity: 0.55;
+  margin: 0 1px;
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+}
+.atlas-uptime__cmark--blink {
+  animation: atlas-uptime-blink 1s steps(2, end) infinite;
+}
+@keyframes atlas-uptime-blink {
+  0%, 50% { opacity: 0.55; }
+  50.01%, 100% { opacity: 0.10; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-uptime__cmark--blink { animation: none; }
+}
+
+.atlas-uptime__caption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgb(var(--rule) / 0.6);
+  margin-top: 4px;
+}
+.atlas-uptime__since {
+  font-size: 11px;
+  color: rgb(var(--ink-mute));
+  letter-spacing: 0.01em;
+}
+.atlas-uptime__since .num {
+  font-size: 11px;
+  font-feature-settings: 'tnum' on, 'zero' on, 'ss19' on;
+  color: rgb(var(--ink-2));
+}
+
+/* -------- ACTIVITY TICKER — horizontal strip below hero -------- */
+.atlas-activity-ticker {
+  margin: 0;
 }
 
 /* -------- SECTION MARK — scroll signal -------- */

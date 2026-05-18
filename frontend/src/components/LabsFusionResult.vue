@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { api } from '@/api/client'
 import type { Fusion, FusionEmailDraft, FusionListItem } from '@/api/types'
+import TagBadge from '@/components/TagBadge.vue'
 
 const props = defineProps<{
   fusion: Fusion | FusionListItem
@@ -66,13 +67,12 @@ async function copyDraft(draft: FusionEmailDraft) {
       <p v-if="fusion.description" class="text-[13.5px] text-ink-2 leading-relaxed" style="white-space: pre-line">{{ fusion.description }}</p>
 
       <div v-if="fusion.industries.length" class="flex flex-wrap items-center gap-1.5">
-        <span
+        <TagBadge
           v-for="ind in fusion.industries"
           :key="ind"
-          class="px-2 py-0.5 rounded-[3px] text-[10.5px] font-semibold uppercase tracking-[0.10em] text-ink-2 bg-surface border border-rule"
-        >
-          {{ ind }}
-        </span>
+          :raw="ind"
+          size="sm"
+        />
       </div>
 
       <!-- Pull-quote treatment: amber tint + full hairline border + leading mark.

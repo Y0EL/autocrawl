@@ -1,10 +1,16 @@
 /**
- * useCursorLight — track pointer position into CSS variables on :root
- * (`--mx` / `--my`) so the gold cursor dot + halo trail follow the
- * cursor. The dot snaps (60ms linear), the halo lags (320ms ease) to
- * create the soft trail. Touch / coarse pointers hide via @media.
+ * useCursorLight — track pointer + interaction state into CSS vars +
+ * data attributes on <body>. Drives a custom editorial cursor:
+ *   - --mx / --my : pointer position
+ *   - data-cursor-active: pointer di dalam document
+ *   - data-cursor-hover : pointer di atas interactive element
+ *   - data-cursor-down  : mouse sedang ditekan
+ * Touch / coarse pointers di-skip otomatis (no custom cursor di mobile).
  */
 import { onBeforeUnmount, onMounted } from 'vue'
+
+const INTERACTIVE_SELECTOR =
+  'a, button, [role="button"], input, textarea, select, summary, [contenteditable], label, [data-cursor-target]'
 
 export function useCursorLight() {
   let rafId = 0
@@ -12,11 +18,14 @@ export function useCursorLight() {
   let pendingY = 0
   let active = false
 
+  function setBodyFlag(name: string, value: boolean) {
+    if (typeof document === 'undefined') return
+    document.body.setAttribute(name, value ? 'true' : 'false')
+  }
+
   function setCursorActive(v: boolean) {
     active = v
-    if (typeof document !== 'undefined') {
-      document.body.setAttribute('data-cursor-active', v ? 'true' : 'false')
-    }
+    setBodyFlag('data-cursor-active', v)
   }
 
   function onMove(e: PointerEvent) {
@@ -26,11 +35,19 @@ export function useCursorLight() {
     if (rafId) return
     rafId = requestAnimationFrame(() => {
       rafId = 0
-      document.documentElement.style.setProperty('--mx', `${pendingX}px`)
-      document.documentElement.style.setProperty('--my', `${pendingY}px`)
+      const root = document.documentElement
+      root.style.setProperty('--mx', `${pendingX}px`)
+      root.style.setProperty('--my', `${pendingY}px`)
     })
+
+    // Hover state: detect if target chain matches interactive selector.
+    const target = e.target as Element | null
+    const hovering = !!(target && target.closest && target.closest(INTERACTIVE_SELECTOR))
+    setBodyFlag('data-cursor-hover', hovering)
   }
 
+  function onDown() { setBodyFlag('data-cursor-down', true) }
+  function onUp()   { setBodyFlag('data-cursor-down', false) }
   function onLeave() { setCursorActive(false) }
   function onEnter() { setCursorActive(true) }
 
@@ -45,7 +62,11 @@ export function useCursorLight() {
       return
     }
     setCursorActive(false) // false until first move
+    setBodyFlag('data-cursor-hover', false)
+    setBodyFlag('data-cursor-down', false)
     window.addEventListener('pointermove', onMove, { passive: true })
+    window.addEventListener('pointerdown', onDown, { passive: true })
+    window.addEventListener('pointerup',   onUp,   { passive: true })
     document.addEventListener('mouseleave', onLeave)
     document.addEventListener('mouseenter', onEnter)
   })
@@ -54,6 +75,8 @@ export function useCursorLight() {
     if (rafId) cancelAnimationFrame(rafId)
     if (typeof window !== 'undefined') {
       window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointerup', onUp)
       document.removeEventListener('mouseleave', onLeave)
       document.removeEventListener('mouseenter', onEnter)
     }

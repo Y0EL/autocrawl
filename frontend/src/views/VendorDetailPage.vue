@@ -8,6 +8,7 @@ import HudProvenanceTimeline from '@/components/HudProvenanceTimeline.vue'
 import VendorProductCatalog from '@/components/VendorProductCatalog.vue'
 import VendorEmailDraftModal from '@/components/VendorEmailDraftModal.vue'
 import GeoAvatar from '@/components/GeoAvatar.vue'
+import TagBadge from '@/components/TagBadge.vue'
 import { downloadVendorDossierPdf } from '@/services/vendorPdfBuilder'
 
 /**
@@ -276,16 +277,12 @@ const scopePct = computed(() =>
 
               <!-- Industries -->
               <div v-if="displayIndustries.length" class="vd-chips vd-chips--industries">
-                <span v-for="tag in displayIndustries" :key="tag" class="vd-chip vd-chip--industry">
-                  {{ tag }}
-                </span>
+                <TagBadge v-for="tag in displayIndustries" :key="tag" :raw="tag" size="sm" />
               </div>
 
               <!-- DoI -->
               <div v-if="data.domain_of_interest?.length" class="vd-chips">
-                <span v-for="doi in data.domain_of_interest" :key="doi" class="vd-chip">
-                  {{ doi }}
-                </span>
+                <TagBadge v-for="doi in data.domain_of_interest" :key="doi" :raw="doi" size="sm" variant="outline" />
               </div>
             </div>
           </div>

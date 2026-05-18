@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { VendorCandidate } from '@/api/types'
+import TagBadge from '@/components/TagBadge.vue'
 
 defineProps<{
   vendor: VendorCandidate
@@ -62,13 +63,12 @@ const emit = defineEmits<{
     </div>
 
     <div v-if="vendor.industries.length" class="flex flex-wrap items-center gap-1.5">
-      <span
+      <TagBadge
         v-for="ind in vendor.industries.slice(0, 3)"
         :key="ind"
-        class="px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-[0.10em] text-ink-2 bg-surface-2 border border-rule"
-      >
-        {{ ind }}
-      </span>
+        :raw="ind"
+        size="xs"
+      />
     </div>
 
     <div class="flex items-center justify-between gap-2 pt-1 rule-t">

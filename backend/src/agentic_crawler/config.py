@@ -262,6 +262,17 @@ class AgenticSettings(BaseSettings):
     preflight_head_timeout_s: float = Field(
         default=8.0, alias="AGENTIC_PREFLIGHT_HEAD_TIMEOUT_S"
     )
+    # F2: DNS hard-fail. NXDOMAIN/SERVFAIL on a discovery seed → blacklist
+    # immediately with reason "dns_dead". Cuts the 20-min Chromium navigation
+    # timeout we observed on `ewanz.com`-class dead domains. Timeout / other
+    # resolver errors fail-open (transient blip is cheaper than dropping a
+    # possibly-good URL).
+    preflight_dns_check_enabled: bool = Field(
+        default=True, alias="AGENTIC_PREFLIGHT_DNS_CHECK_ENABLED"
+    )
+    preflight_dns_timeout_s: float = Field(
+        default=3.0, alias="AGENTIC_PREFLIGHT_DNS_TIMEOUT_S"
+    )
 
 
 @lru_cache(maxsize=1)

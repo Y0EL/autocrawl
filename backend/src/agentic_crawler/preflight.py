@@ -16,7 +16,9 @@ a real network blip than to drop a possibly-good URL.
 from __future__ import annotations
 
 import asyncio
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from crawler.observability.logger import get_logger
 
@@ -49,6 +51,32 @@ def _is_serp_url(url: str) -> bool:
     return any(s in u for s in ("bing.com/search", "duckduckgo.com/", "google.com/search"))
 
 
+async def _dns_resolve(host: str, timeout_s: float) -> tuple[bool, str]:
+    """Resolve `host` with a hard timeout. Returns (resolved, reason).
+    `reason` is "ok", "nxdomain", "no_host", or a short error tag.
+    """
+    if not host:
+        return False, "no_host"
+    loop = asyncio.get_running_loop()
+    try:
+        await asyncio.wait_for(
+            loop.run_in_executor(None, socket.getaddrinfo, host, None),
+            timeout=timeout_s,
+        )
+        return True, "ok"
+    except asyncio.TimeoutError:
+        return True, "dns_timeout"  # fail-open: treat slow resolver as transient
+    except socket.gaierror as e:
+        # EAI_NONAME (-2 on Linux, 11001 on Windows) = NXDOMAIN.
+        # EAI_NODATA / EAI_FAIL = SERVFAIL-class. Map all hard-fails to nxdomain.
+        if e.errno in (socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5), getattr(socket, "EAI_FAIL", -4)):
+            return False, "nxdomain"
+        # Any other gaierror (network unreachable etc) → fail-open.
+        return True, f"dns_gai_{e.errno}"
+    except Exception:  # noqa: BLE001
+        return True, "dns_unknown_error"
+
+
 async def passes_preflight(seed: AgenticSeed) -> tuple[bool, str]:
     """Return (ok, reason). ok=False means drop this seed before crawling."""
     s = get_agentic_settings()
@@ -59,6 +87,35 @@ async def passes_preflight(seed: AgenticSeed) -> tuple[bool, str]:
         return True, "not_discovery"
     if _is_serp_url(seed.url):
         return True, "serp_bypass"
+
+    # F2: DNS hard-fail. Cheaper than the HEAD probe and catches the
+    # ERR_NAME_NOT_RESOLVED class we burn 20+ Chromium minutes on otherwise.
+    if s.preflight_dns_check_enabled:
+        host = urlparse(seed.url).hostname or ""
+        resolved, dns_reason = await _dns_resolve(host, s.preflight_dns_timeout_s)
+        if not resolved:
+            try:
+                from .knowledge import KnowledgeStore, domain_of
+
+                store = await KnowledgeStore.load()
+                dom = domain_of(seed.url)
+                if dom:
+                    await store.mark_blacklist(dom, "dns_dead")
+                    await store.save()
+                _log.info(
+                    "agentic.preflight_dns_dead",
+                    url=seed.url,
+                    host=host,
+                    domain=dom,
+                    dns_reason=dns_reason,
+                )
+            except Exception as e:  # noqa: BLE001
+                _log.warning(
+                    "agentic.preflight_dns_dead_persist_failed",
+                    url=seed.url,
+                    error=str(e)[:120],
+                )
+            return False, "dns_dead"
 
     # Use the same proxied_client our search modules use, so the preflight
     # probe sees the same egress IP the agent will see. Without this we'd

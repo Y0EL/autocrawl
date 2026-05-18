@@ -1,8 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginPage.vue'),
+      meta: { bare: true, public: true },
+    },
     {
       path: '/',
       name: 'atlas',
@@ -78,6 +85,24 @@ const router = createRouter({
       component: () => import('@/views/NotFoundPage.vue'),
     },
   ],
+})
+
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+  const isPublic = Boolean(to.meta?.public)
+
+  if (!auth.isAuthenticated && !isPublic) {
+    return {
+      path: '/login',
+      query: to.fullPath && to.fullPath !== '/' ? { redirect: to.fullPath } : undefined,
+    }
+  }
+
+  if (auth.isAuthenticated && to.name === 'login') {
+    return { path: '/' }
+  }
+
+  return true
 })
 
 export default router

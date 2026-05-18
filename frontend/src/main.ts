@@ -33,6 +33,7 @@ import {
   faRightFromBracket, faSliders, faTrash, faPenToSquare, faWandMagicSparkles,
   faToggleOn, faToggleOff, faRobot, faUpRightAndDownLeftFromCenter,
   faDownLeftAndUpRightToCenter,
+  faGavel, faPassport, faPlane, faAnchor, faBomb,
 } from '@fortawesome/free-solid-svg-icons'
 import {
   faSun as farSun, faMoon as farMoon, faFile as farFile,
@@ -56,6 +57,7 @@ library.add(
   faRightFromBracket, faSliders, faTrash, faPenToSquare, faWandMagicSparkles,
   faToggleOn, faToggleOff, faRobot, faUpRightAndDownLeftFromCenter,
   faDownLeftAndUpRightToCenter,
+  faGavel, faPassport, faPlane, faAnchor, faBomb,
   farSun, farMoon, farFile,
   faGithub, faLinkedin, faXTwitter, faFacebook, faYoutube, faInstagram,
 )
