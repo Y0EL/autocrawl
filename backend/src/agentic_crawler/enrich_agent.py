@@ -122,6 +122,8 @@ def _system_prompt_for_task(task: EnrichTask, few_shot_block: str) -> str:
         f"null = unknown (don't invent). bail_reason ∈ "
         f"{{null, formality, 404, captcha, image_only, wrong_domain}}. completeness_score 0-1.\n"
         f"ANTI-LOOP RULES (HARD):\n"
+        f"  0. The JSON above MUST be the inline text of done(). NEVER use files_to_display "
+        f"or any attachment. Parser only reads inline text — attachments are dropped.\n"
         f"  1. If `extract` returns 'no match' or empty 2× in a row → STOP, emit done with what you have.\n"
         f"  2. If you've called the SAME tool with the SAME query 2× → STOP, emit done.\n"
         f"  3. If page is a press-release distributor (einpresswire, prnewswire, businesswire, prweb, newswire, openpr, issuewire) → STOP IMMEDIATELY with bail_reason='wrong_domain'. These are NEVER the vendor.\n"

@@ -73,3 +73,10 @@ dist/
 *.vscode
 *.claude
 frontend/certs/
+
+# Large demo assets — host externally
+# GitHub limit is 100MB per file; ui.mp4 original is ~287MB.
+# Compressed 720p version (ui-readme.mp4 ~21MB) IS committed so the README
+# can embed it inline via the <video> tag.
+frontend/public/ui.mp4
+

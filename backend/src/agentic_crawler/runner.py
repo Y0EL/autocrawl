@@ -117,6 +117,21 @@ async def run_seed(seed: AgenticSeed) -> dict[str, int]:
             name=seed.name,
             elapsed_s=int(elapsed),
         )
+        try:
+            from .config import get_agentic_settings as _gs
+
+            await archive_lesson(
+                seed=seed,
+                agent_result=result,
+                elapsed_s=elapsed,
+                raw_steps=result.raw_steps,
+                status="failure",
+                failure_category="empty_result",
+                failure_detail="extracted_zero_vendors",
+                archive_recordings=_gs().lessons_archive_recordings,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.debug("agentic.lesson_archive_failed_zero", error=str(e))
     await store.save()
 
     # Discovery audit trail: record per-pair outcome so the next pass's

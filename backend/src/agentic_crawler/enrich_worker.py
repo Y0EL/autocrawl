@@ -31,8 +31,38 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import socket
 from typing import Any
+
+_PERSON_NAME_RE = re.compile(
+    r"^[A-ZÀ-Ý][a-zà-ÿ]+(?:[-'][A-ZÀ-Ý][a-zà-ÿ]+)?\s+"
+    r"(?:[A-ZÀ-Ý]\.?\s+)?"
+    r"[A-ZÀ-Ý][a-zà-ÿ]+(?:[-'][A-ZÀ-Ý][a-zà-ÿ]+)?$"
+)
+_CORP_SUFFIX_KEYWORDS = frozenset({
+    "inc", "corp", "ltd", "limited", "llc", "gmbh", "ag", "srl", "sa", "plc",
+    "bv", "co", "company", "tech", "technologies", "systems", "solutions",
+    "group", "labs", "holdings", "industries", "services", "security",
+    "intelligence", "defense", "defence", "software", "energy", "networks",
+    "communications", "media", "dynamics", "partners", "aerospace",
+    "electronics", "robotics", "telecom", "ventures", "consulting",
+    "international", "global", "digital", "platform", "cloud", "data",
+    "analytics", "research", "engineering", "automation", "innovations",
+    "enterprises", "associates", "manufacturing", "ai", "iot", "cyber",
+})
+
+
+def _looks_like_person_name(name: str) -> bool:
+    if not name or len(name) > 50:
+        return False
+    stripped = name.strip()
+    lower_tokens = set(stripped.lower().replace(".", " ").split())
+    if lower_tokens & _CORP_SUFFIX_KEYWORDS:
+        return False
+    if not _PERSON_NAME_RE.match(stripped):
+        return False
+    return True
 
 from crawler.observability.logger import get_logger
 from crawler.observability.metrics import (
@@ -164,8 +194,9 @@ def _vendor_from_static(
         source_tags=["agentic_enrich", "static_scrape"],
         source_trail=[
             SourceProvenance(
-                source="static_scraper",
+                type="manual",
                 url=scrape.source_url,  # type: ignore[arg-type]
+                extraction_method="static_scraper",
             )
         ],
         raw_extracts={
@@ -364,6 +395,32 @@ async def _process_one(
         vendor=task.vendor_name[:80], expo_id=task.expo_id,
         consumer=consumer_id,
     )
+
+    # Person-name short-circuit. Listing agent sometimes mis-extracts
+    # speaker/attendee profiles as exhibitors. Reject before any LLM or
+    # Browser-Use work so we don't burn ~4 minutes per false positive.
+    # Conservative: only fires when the name matches a person-shaped
+    # pattern AND no corp suffix keyword is present.
+    if _looks_like_person_name(task.vendor_name):
+        _log.info(
+            "enrich_worker.person_name_rejected",
+            vendor=task.vendor_name[:80],
+            expo_id=task.expo_id,
+        )
+        try:
+            await _persist_unresolved_fallback(task, "person_name_rejected")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await enrich_queue.ack(entry_id)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            agentic_enrich_outcomes_total.labels(status="person_rejected").inc()
+            agentic_enrich_inflight.labels(worker_id=consumer_id).dec()
+        except Exception:  # noqa: BLE001
+            pass
+        return
 
     try:
         # Phase 4 PR 3 — Static-scraper pre-pass. ~3-15s per call. If we

@@ -154,12 +154,18 @@ async def run_agent_for_seed(seed: AgenticSeed) -> AgentResult:
         f"OUTPUT (JSON only, no prose, no fences):\n"
         f'{{"exhibitors": [{{"name": "...", "booth": "...", "url": "...", '
         f'"country": "..."}}]}}\n'
-        f"booth/url/country optional → null if unknown.\n\n"
+        f"booth/url/country optional → null if unknown.\n"
+        f"EXHIBITOR = company/organization entity (e.g. 'Acme Corp', 'Napatech', "
+        f"'IBM Security'). NEVER a person's name (e.g. 'John Smith', 'Paul Morris'). "
+        f"If a card looks like a speaker/attendee profile (first+last name only, no "
+        f"corp suffix like Inc/Corp/Ltd/GmbH/AG/Tech/Systems/Group/Labs), SKIP it.\n\n"
         f"Bail (404 / captcha / paywall / 403 / image_only / empty_page): emit done with "
         f'{{"exhibitors": [], "bail_reason": "<cat>"}}.\n'
         f"FORBIDDEN ACTIONS:\n"
         f"  ✗ `navigate` to google.com or any external search engine — stay on the seed URL.\n"
-        f"  ✗ `click` on random index numbers — only click elements you can SEE in the DOM.\n\n"
+        f"  ✗ `click` on random index numbers — only click elements you can SEE in the DOM.\n"
+        f"  ✗ `done` with `files_to_display` or any attachment field. The JSON payload MUST be "
+        f"the inline text/result of the done action. Attachments are silently dropped by the parser.\n\n"
         f"BUDGET RULES:\n"
         f"  1. `wait` action: max 1× per task. Browser-Use already auto-waits for page load. "
         f"After 1× wait, if page still empty, try scroll then extract — don't wait again.\n"
